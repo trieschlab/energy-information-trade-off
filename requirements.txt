@@ -1,0 +1,17 @@
+numpy==1.26.4
+scipy==1.14.1
+torch==2.2.2
+Brian2==2.7.1
+sbi==0.24.0
+matplotlib==3.9.2
+seaborn==0.13.2
+pandas==2.2.3
+scikit-learn==1.5.1
+tqdm==4.67.1
+joblib==1.4.2
+h5py==3.13.0
+imageio==2.33.1
+numexpr==2.10.1
+plotly==5.24.1
+Cython==3.0.11
+clang==17.0.6

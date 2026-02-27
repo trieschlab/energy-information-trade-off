@@ -15,3 +15,4 @@ numexpr==2.10.1
 plotly==5.24.1
 Cython==3.0.11
 clang==17.0.6
+scikit-image==0.26.0

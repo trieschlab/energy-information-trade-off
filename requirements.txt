@@ -16,3 +16,5 @@ plotly==5.24.1
 Cython==3.0.11
 clang==17.0.6
 scikit-image==0.26.0
+pillow==11.0.0
+pymoo==0.6.2

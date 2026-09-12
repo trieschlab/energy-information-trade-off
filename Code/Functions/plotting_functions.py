@@ -28,6 +28,9 @@ import random
 from sklearn.linear_model import LinearRegression
 from matplotlib.patches import Ellipse
 from matplotlib.ticker import MaxNLocator
+from matplotlib.lines import Line2D
+from matplotlib.colors import LinearSegmentedColormap
+
 
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from scipy.signal import welch #, iirnotch, filtfilt
@@ -38,7 +41,7 @@ from matplotlib.colors import to_rgba
 from matplotlib.cm import ScalarMappable
 from mpl_toolkits.mplot3d.art3d import Line3DCollection, Poly3DCollection
 from skimage.measure import marching_cubes
-from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+from scipy import stats
 
 
 # import video packages
@@ -569,7 +572,7 @@ def plot_illustrative_sliding_variable_gap(t_plot, V_plot, color_1='black', colo
     
     # add labels
     ax.text(t_plot[-1]-4, v_thresh+2, r'$V_\mathrm{th}$', va='center', ha='left')#, fontsize=fontsize)
-    ax.text(t_plot[-1]-4, v_rest+4, r'$V_{rest}$ ', va='center', ha='left')#, fontsize=fontsize)
+    ax.text(t_plot[-1]-4, v_rest+4, r'$V_{\mathrm{rest}}$ ', va='center', ha='left')#, fontsize=fontsize)
     
     # save & plot standalone figures
     if standalone is True:       
@@ -629,7 +632,7 @@ def plot_illustrative_sliding_constant_gap(t_plot, V_plot, color_1='black', colo
     
     # add labels
     ax.text(t_plot[-1]-4, v_thresh+2, r'$V_\mathrm{th}$', va='center', ha='left')#, fontsize=fontsize)
-    ax.text(t_plot[-1]-4, v_rest+4, r'$V_{rest}$', va='center', ha='left')#, fontsize=fontsize)
+    ax.text(t_plot[-1]-4, v_rest+4, r'$V_{\mathrm{rest}}$', va='center', ha='left')#, fontsize=fontsize)
     
     # save & plot standalone figures
     if standalone is True:       
@@ -641,9 +644,10 @@ def plot_illustrative_sliding_constant_gap(t_plot, V_plot, color_1='black', colo
         plt.show()
     
 
-def illustrative_EPSC(figsize=(3, 4), ax=None, savename='EPSC_CTR_FR'):
+def illustrative_EPSC(mode='unequal', figsize=(3, 4), ax=None, savename='EPSC_CTR_FR'):
     # creates CTR & FR EPSC
     # input
+    # mode sets the mode of equal or unequal EPSC sizes
     # figsize sets figure size for standalone figures
     # ax assigns plot to existing axis
     # savename is an optional name to save figure
@@ -673,14 +677,20 @@ def illustrative_EPSC(figsize=(3, 4), ax=None, savename='EPSC_CTR_FR'):
         return epsc_val
     
     # compute EPSCs
-    i_black = -epsc(t, A1, tau_rise, tau_decay)
-    i_red   = -epsc(t, A2, tau_rise, tau_decay)
+    i_red   = -epsc(t, A1, tau_rise, tau_decay)
+    i_black = -epsc(t, A2, tau_rise, tau_decay)
     
     # plot    
-    ax.plot(t, i_black, lw=3, color='black')
-    ax.plot(t, i_red, lw=3, color='red')
     
-    
+
+    if mode == 'equal':
+        ax.plot(t, i_black, lw=3, color='black')
+        ax.plot(t, i_black + 0.05, lw=3, color='red')
+
+    elif mode == 'unequal': 
+        ax.plot(t, i_black, lw=3, color='black')
+        ax.plot(t, i_red, lw=3, color='red')
+        
     # style
     ax.set_xticks([])
     ax.set_yticks([])
@@ -700,9 +710,10 @@ def illustrative_EPSC(figsize=(3, 4), ax=None, savename='EPSC_CTR_FR'):
             print(f"Saved figure to {path}")
         plt.show()
 
-def illustrative_AP(figsize=(3, 4), ax=None, savename='AP_CTR_FR'):
+def illustrative_AP(mode='CTR_FR', figsize=(3, 4), ax=None, savename='AP_CTR_FR'):
     # creates CTR & FR EPSC
     # input
+    # mode sets the mode of equal or unequal EPSC sizes
     # figsize sets figure size for standalone figures
     # ax assigns plot to existing axis
     # savename is an optional name to save figure
@@ -723,7 +734,7 @@ def illustrative_AP(figsize=(3, 4), ax=None, savename='AP_CTR_FR'):
     tau_w = 100.0   # ms
     a = 2.0         # nS
     b = 40.0        # pA
-    V_reset = -65.0 # mV
+    V_reset = -60.0 # mV
     V_spike = 20.0  # mV
     
     # time vector
@@ -732,41 +743,89 @@ def illustrative_AP(figsize=(3, 4), ax=None, savename='AP_CTR_FR'):
     n_steps = int(T/dt)
     t = np.linspace(0, T, n_steps)
     
-    # input currents
-    I_black = 200.0  # pA (subthreshold)
-    I_red = 300.0    # pA (suprathreshold)
+    # Gaussian input current
+    mu = 20.0       # ms, center of Gaussian
+    sigma = 5.0     # ms, width of Gaussian
+
+    def gaussian_current(amplitude):
+        return amplitude * np.exp(-0.5 * ((t - mu) / sigma) ** 2)
+    
+    I_black_amp = 500.0 # pA (subthreshold)
+    I_red_amp = 600.0   # pA (suprathreshold)
+    
+    # default parameter sets
+    params_black = {'EL': EL, 'VT': VT}
+    params_red   = {'EL': EL, 'VT': VT}
+
+    # second threshold line only used in one mode
+    extra_threshold_line = None
+
+    
+    # modes
+    if mode == 'CTR_FR':
+        # same logic as before: black smaller input, red larger input
+        pass
+
+    elif mode == 'dendritic_integration':
+        # black stays constant, red input gets larger
+        I_red_amp = 700
+
+    elif mode == 'spiking_threshold':
+        # same current input for both, black has increased threshold
+        params_black['VT'] = VT - 2.0
+        extra_threshold_line = params_black['VT'] - 2.5
+
+    elif mode == 'resting_potential':
+        # same current input for both, black has more hyperpolarized resting potential
+        params_black['EL'] = EL - 5.0
+
+    I_black = gaussian_current(I_black_amp)
+    I_red = gaussian_current(I_red_amp)
     
     # function to simulate AdEx
-    def adexp(I_inj):
+    def adexp(I_inj, EL_local, VT_local):
         V = np.zeros(n_steps)
         w = np.zeros(n_steps)
-        V[0] = EL
+        V[0] = EL_local
+        
         for i in range(1, n_steps):
-            current = I_inj if t[i] <= 30 else 0.0
-            dV = ( -gL*(V[i-1]-EL) + gL*DeltaT*np.exp((V[i-1]-VT)/DeltaT) - w[i-1] + current ) / C
-            V[i] = V[i-1] + dt * dV
-            dw = ( a*(V[i-1]-EL) - w[i-1] ) / tau_w
-            w[i] = w[i-1] + dt * dw
+            current = I_inj[i]
+            dV = (-gL * (V[i - 1] - EL_local) + gL * DeltaT * np.exp((V[i - 1] - VT_local) / DeltaT) - w[i - 1] + current ) / C
+            V[i] = V[i - 1] + dt * dV
+            dw = (a * (V[i - 1] - EL_local) - w[i - 1]) / tau_w
+            w[i] = w[i - 1] + dt * dw
+
             if V[i] >= V_spike:
-                V[i-1] = V_spike  # record spike
+                V[i - 1] = V_spike
                 V[i] = V_reset
                 w[i] += b
+
         return V
     
     # simulate both cases
-    V_black = adexp(I_black)
-    V_red = adexp(I_red)
+    V_black = adexp(I_black, params_black['EL'], params_black['VT'])
+    V_red   = adexp(I_red,   params_red['EL'],   params_red['VT'])
     
     # plot
-    fig, ax = plt.subplots(figsize=(3,4))
-    
     ax.plot(t, V_black, lw=3, color='black')
     ax.plot(t, V_red, lw=3, color='red')
+
+    # default threshold line (red / control threshold)
+    VT_plot_red = params_red['VT'] + 2.0
+    ax.hlines(VT_plot_red, t[0], t[-1], linestyles='--', linewidth=2, color='black')
+    ax.text(t[-1] + 2, VT_plot_red, r'$V_\mathrm{th}$', va='center', ha='left', fontsize=18)
+
+    # extra threshold line for black curve in spiking_threshold mode
+    if extra_threshold_line is not None:
+        ax.hlines(extra_threshold_line, t[0], t[-1], linestyles='--', linewidth=2, color='red')
+        ax.text(t[-1] + 2, extra_threshold_line, r'$V_\mathrm{th}$', va='center', ha='left', fontsize=18, color='red')
     
-    VT_plot = VT + 2
-    ax.hlines(VT_plot, t[0], t[-1], linestyles='--', linewidth=2, color='black')
-    ax.text(t[-1] + 2, VT_plot, r'$V_\mathrm{th}$', va='center', ha='left', fontsize=27)
-    
+    # style
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+        
     # save & plot standalone figures
     if standalone is True:       
         if savename is not None:
@@ -812,22 +871,22 @@ def load_and_plot_tuning_curves_N_e_signal_ratios(model_mode, N_e_signal_ratios,
 
         # load model results as available
         if 'LIF' in model_mode:
-            name_CTR_LIF = f"N_exc_signal/{base}_results_single_runs_CTR_LIF"
-            name_FR_LIF  = f"N_exc_signal/{base}_results_single_runs_FR_LIF"
+            name_CTR_LIF = f"{base}_results_single_runs_CTR_LIF"
+            name_FR_LIF  = f"{base}_results_single_runs_FR_LIF"
             res_CTR_LIF  = af.load_data(name_CTR_LIF)
             res_FR_LIF   = af.load_data(name_FR_LIF)
             tuning_curves_CTR_LIF = res_CTR_LIF["tuning_curve"]
             tuning_curves_FR_LIF = res_FR_LIF["tuning_curve"]
 
         if 'AdExp' in model_mode:
-            name_CTR_AdExp = f"N_exc_signal/{base}_results_single_runs_CTR_AdExp"
-            name_FR_AdExp  = f"N_exc_signal/{base}_results_single_runs_FR_AdExp"
+            name_CTR_AdExp = f"{base}_results_single_runs_CTR_AdExp"
+            name_FR_AdExp  = f"{base}_results_single_runs_FR_AdExp"
             res_CTR_AdExp  = af.load_data(name_CTR_AdExp)
             res_FR_AdExp   = af.load_data(name_FR_AdExp)
             tuning_curves_CTR_AdExp = res_CTR_AdExp["tuning_curve"]
             tuning_curves_FR_AdExp = res_FR_AdExp["tuning_curve"]
 
-        # Plot depending on what was loaded
+        # plot depending on what was loaded
         if 'LIF' in model_mode: 
             plot_tuning_curves(tuning_curves_CTR_LIF, tuning_curves_FR_LIF, "CTR", "FR", normalized=True, color_CTR="black", color_FR="red", mean_over_zeros=False)
 
@@ -876,8 +935,13 @@ def plot_raster(spike_times_e, spike_times_i, N_e_noise, w_e=False, title_mode=T
     # plot excitatory spikes in red
     for neuron_idx, spike_times in spike_times_e.items():
         alpha = alphas[neuron_idx] if w_e is not False else 1.0
-        ax.scatter(spike_times/ms/1000, [neuron_idx] * len(spike_times), color=color_input_exc, s=markersize, alpha=alpha) 
 
+        # for N_e_noise noise synapses use lighter red
+        if N_e_noise is not None and neuron_idx < N_e_noise:
+            alpha *= 0.25
+        
+        ax.scatter(spike_times/ms/1000, [neuron_idx] * len(spike_times), color=color_input_exc, s=markersize, alpha=alpha)
+    
     # plot inhibitory spikes in blue (stacked above excitatory)
     offset_inh = N_e  # offset to stack inhibitory neurons above excitatory
     for neuron_idx, spike_times in spike_times_i.items():
@@ -977,7 +1041,7 @@ def plot_cumulative_weights(w_e, description, color='blue', figsize=(5, 4), ax=N
     
     half_strength_idx = np.argmax(weighted_cdf >= 0.5) # add a vertical line at 50% strength
     ax.axvline(sorted_weights[half_strength_idx], color='gray', linestyle='--')
-    ax.text(sorted_weights[half_strength_idx]*1.9, 0.45, f"50% of $w_{{e,tot}}$ by \n{round((1-cdf[half_strength_idx])*100)}% of syn.")
+    ax.text(sorted_weights[half_strength_idx]*1.9, 0.45, f"50% of $w_{{e,tot}}$ by \n top {round((1-cdf[half_strength_idx])*100)}% of syn.")
     ax.set_xlabel("mean exc weight (nS)") # $⟨w_{syn,e}⟩$ 
     ax.set_ylabel("cum. density frac.")#"cum. density fraction"
     ax.legend(frameon=False, loc="lower right")
@@ -1203,8 +1267,8 @@ def plot_raw_and_clean_V_m(baseline_signal, cleaned_signal, T, color='black', fi
     y0 = ylim[0] + 0.01 * (ylim[1] - ylim[0])
     ax.hlines(y0, x0, x0 + scalebar_time, colors='k') # , linewidth=2
     ax.vlines(0.8*x0, y0, y0 + scalebar_voltage, colors='k') # , linewidth=2
-    ax.text(x0 + scalebar_time/2, y0 - 0.02*(ylim[1]-ylim[0]), str(scalebar_time)+'ms', ha='center', va='top')
-    ax.text(x0 - 0.02*(xlim[1]-xlim[0]), y0 + scalebar_voltage/2, str(scalebar_voltage)+'mV', ha='right', va='center', rotation='vertical')
+    ax.text(x0 + scalebar_time/2*2, y0 - 0.03*(ylim[1]-ylim[0]), str(scalebar_time)+' ms', ha='center', va='top')
+    ax.text(x0 - 0.01*(xlim[1]-xlim[0]), y0 + scalebar_voltage/2, str(scalebar_voltage)+' mV', ha='right', va='center', rotation='vertical')
     # inset
     ins = inset_axes(ax, width='50%', height='30%', loc='upper right')
     ins.plot(t[:1000], baseline_signal[:1000], color=color, alpha=0.3)
@@ -1217,8 +1281,8 @@ def plot_raw_and_clean_V_m(baseline_signal, cleaned_signal, T, color='black', fi
     y0 = ylim[0] + 0.01 * (ylim[1] - ylim[0])
     ins.hlines(y0, x0, x0 + inset_time, colors='k') # , linewidth=2
     ins.vlines(0.8*x0, y0, y0 + inset_voltage, colors='k') # , linewidth=2
-    ins.text(x0 + inset_time/2, y0 - 0.1*(ylim[1]-ylim[0]), str(inset_time)+'ms', ha='center', va='top')
-    ins.text(x0 - 0.02*(xlim[1]-xlim[0]), y0 + inset_voltage/2, str(inset_voltage)+'mV', ha='right', va='center', rotation='vertical')
+    ins.text(x0 + inset_time/2, y0 - 0.1*(ylim[1]-ylim[0]), str(inset_time)+' ms', ha='center', va='top')
+    ins.text(x0 - 0.02*(xlim[1]-xlim[0]), y0 + inset_voltage/2, str(inset_voltage)+' mV', ha='right', va='center', rotation='vertical')
 
     # save & plot standalone figures
     if standalone is True:       
@@ -1652,7 +1716,7 @@ def FWHM_per_noise_level(results_membrane_noise):
 
     return FWHM
     
-def plot_tuning_curves(tuning_curves_CTR, tuning_curves_FR, label_CTR, label_FR, normalized=True, color_CTR = 'black', color_FR = 'red', mean_over_zeros=True, mode='tuning_curve', half_width_max=False, minmax_mode=True, show_legend=True, show_xlabel=True, show_ylabel=True, figsize=(2.5, 3), ax=None, savename=None):
+def plot_tuning_curves(tuning_curves_CTR, tuning_curves_FR, label_CTR, label_FR, normalized=True, color_CTR = 'black', color_FR = 'red', standard_error_tuning_curve_CTR=0, standard_error_tuning_curve_FR=0, mean_over_zeros=True, mode='tuning_curve', half_width_max=False, minmax_mode=True, show_legend=True, show_xlabel=True, show_ylabel=True, figsize=(2.5, 3), ax=None, savename=None):
     # plot tuning curves CTR vs FR
     
     # input
@@ -1660,6 +1724,7 @@ def plot_tuning_curves(tuning_curves_CTR, tuning_curves_FR, label_CTR, label_FR,
     # label_CTR, label_FR are the labels of the plotted values
     # normalized is the option of normalizing the tuning curves
     # color_CTR, color_FR are the colors of the tuning curves
+    # standard_error_tuning_curve_CTR, standard_error_tuning_curve_FR are potential standard errors to be passed for experimental data
     # mean_over_zeros is an optional argument which excludes all 0 values before meaning
     # mode decides if tuning_curve labels or CV_ISI_labels are used
     # half_width_max decides if dashed vertical lines at full width half maximum (FWHM) is drawn
@@ -1688,7 +1753,7 @@ def plot_tuning_curves(tuning_curves_CTR, tuning_curves_FR, label_CTR, label_FR,
             
         mean_tuning_curve_CTR = np.mean([x for x in tuning_curves_CTR if x is not None], axis=0)
         mean_tuning_curve_FR = np.mean([x for x in tuning_curves_FR if x is not None], axis=0)
-    
+        
         standard_error_tuning_curve_CTR = np.std([x for x in tuning_curves_CTR if x is not None], axis=0)/np.sqrt(len(tuning_curves_CTR))
         standard_error_tuning_curve_FR = np.std([x for x in tuning_curves_FR if x is not None], axis=0)/np.sqrt(len(tuning_curves_FR))
     
@@ -1696,8 +1761,8 @@ def plot_tuning_curves(tuning_curves_CTR, tuning_curves_FR, label_CTR, label_FR,
         mean_tuning_curve_CTR = tuning_curves_CTR
         mean_tuning_curve_FR = tuning_curves_FR
     
-        standard_error_tuning_curve_CTR = 0 
-        standard_error_tuning_curve_FR = 0
+        standard_error_tuning_curve_CTR = standard_error_tuning_curve_CTR 
+        standard_error_tuning_curve_FR = standard_error_tuning_curve_FR
     
     if normalized == False: # raw tuning curve
         ax.errorbar(orientation_list, mean_tuning_curve_CTR, standard_error_tuning_curve_CTR, label = label_CTR, color = color_CTR,fmt='-o', capsize=3)
@@ -1724,7 +1789,7 @@ def plot_tuning_curves(tuning_curves_CTR, tuning_curves_FR, label_CTR, label_FR,
             ax.axvline(FWHM_R_FR, linestyle='--', color=color_FR, alpha=0.7, linewidth=1.0)
 
     if show_xlabel is True: 
-        ax.set_xlabel('Distance from \n Preferred ($\circ$)') 
+        ax.set_xlabel('Distance from \n Pref. Orientation ($\circ$)') 
     
     if show_ylabel is True: 
         if mode == 'tuning_curve' and normalized == False: 
@@ -1875,15 +1940,15 @@ def plot_phase_plane_Vw(I_syn_mean_CTR, I_syn_mean_FR, g_L_CTR, g_L_FR, E_L_CTR,
         fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
         
     # V_m-nullclines
-    ax.plot(V_m, V_m_nullcline_CTR, label='V-nullcline CTR', color=color_CTR, linestyle='-', linewidth=2)
-    ax.plot(V_m, V_m_nullcline_FR,  label='V-nullcline FR',  color=color_FR,   linestyle='-', linewidth=2)
+    ax.plot(V_m, V_m_nullcline_CTR, label='$V$-nullcline CTR', color=color_CTR, linestyle='-', linewidth=2)
+    ax.plot(V_m, V_m_nullcline_FR,  label='$V$-nullcline FR',  color=color_FR,   linestyle='-', linewidth=2)
 
     # w_ad-nullclines if present (adapting models)
     distance_labels = []
 
     if a != 0: # 2D: LIF+ad, AdExp with distance being the separation of V-nullcline and w-nullcline
-        ax.plot(V_m, w_ad_nullcline_CTR, label='w-nullcline CTR', color=color_CTR, linestyle='--')
-        ax.plot(V_m, w_ad_nullcline_FR,  label='w-nullcline FR',  color=color_FR,   linestyle='--')
+        ax.plot(V_m, w_ad_nullcline_CTR, label='$w$-nullcline CTR', color=color_CTR, linestyle='--')
+        ax.plot(V_m, w_ad_nullcline_FR,  label='$w$-nullcline FR',  color=color_FR,   linestyle='--')
     
         # CTR distance
         idx_min_CTR = np.argmin(V_m_nullcline_CTR)
@@ -1908,7 +1973,7 @@ def plot_phase_plane_Vw(I_syn_mean_CTR, I_syn_mean_FR, g_L_CTR, g_L_FR, E_L_CTR,
             distance_labels.append(f'distance FR = {dist_FR:.3f} nA')
     
     else: # 1D: LIF, LIF+exp with distance being the vertical distance from V-nullcline to w_ad = 0
-        ax.axhline(0.0, color='gray', linestyle=':', label='w_ad = 0 (no adap.)')
+        ax.axhline(0.0, color='gray', linestyle=':', label='$w_{\mathrm{ad}}$ = 0 (no adap.)')
     
         # CTR robustness = |w_ad(V_nullcline_min)| = |net current|
         idx_min_CTR = np.argmin(V_m_nullcline_CTR)
@@ -1931,7 +1996,7 @@ def plot_phase_plane_Vw(I_syn_mean_CTR, I_syn_mean_FR, g_L_CTR, g_L_FR, E_L_CTR,
             distance_labels.append(f'distance FR = {dist_FR:.3f} nA')
 
     # mark threshold
-    ax.axvline(V_thresh, color='k', linestyle=':', linewidth=1)
+    ax.axvline(V_thresh, color='k', linestyle='--', linewidth=1)
     ax.set_xlim(V_min, V_max)
     y_min, y_max = ax.get_ylim()
     ax.set_ylim(y_min, y_max)
@@ -2005,9 +2070,9 @@ def plot_membrane_noise_effect(results_membrane_noise_CTR, results_membrane_nois
     
     x_label = 'Membrane noise level $\sigma$ (mV/ms)'
     y_label = value_key_text_plot(metric, plot_mode=plot_mode) 
-    label_1 = 'CTR OSI'
-    label_2 = 'FR OSI'
-    #label_1 = 'Moving gap $V_{rest} - V_{thresh} = 22$ mV'
+    label_1 = 'CTR $OSI$'
+    label_2 = 'FR $OSI$'
+    #label_1 = 'Moving gap $V_{\mathrm{rest}} - V_{\mathrm{thresh}} = 22$ mV'
     description=""
     if description_mode is True: 
         description = rf'Comparison of {y_label} of CTR and FR for different noise levels'
@@ -2082,10 +2147,10 @@ def plot_V_gap_variable(results_multiple_runs_E_L, results_multiple_runs_V_thres
         y_1_mean = np.mean(y_1, axis=0)
         y_2_mean = np.mean(y_2, axis=0)
     
-    x_label = 'Gap between $V_{rest}$ and $V_{thresh}$ (mV)'
+    x_label = 'Gap between $V_{\mathrm{rest}}$ and $V_{\mathrm{thresh}}$ (mV)'
     y_label = value_key_text_plot(metric, plot_mode=plot_mode)
-    label_1 = 'Increased $V_{rest}$,\n$V_{thresh} = -50$ mV'
-    label_2 = 'Decreased $V_{thresh}$,\n$V_{rest} = -72$ mV'
+    label_1 = 'Increased $V_{\mathrm{rest}}$,\n$V_{\mathrm{thresh}} = -50$ mV'
+    label_2 = 'Decreased $V_{\mathrm{thresh}}$,\n$V_{\mathrm{rest}} = -72$ mV'
     description=""
     if description_mode is True: 
         description = rf'Comparison of {y_label} for varying gap between $V_{{rest}}$ and $V_{{thresh}}$'
@@ -2118,7 +2183,7 @@ def plot_V_gap_variable_E_e_E_i(results_multiple_runs_E_L, results_multiple_runs
         x_2 = results_multiple_runs_V_thresh['V_gap_absolute_list']
         y_2 = list(map(list, zip(*results_multiple_runs_V_thresh[metric])))
 
-        x_label = 'Gap between $V_{rest}$ and $V_{thresh}$ / mV'
+        x_label = 'Gap between $V_{\mathrm{rest}}$ and $V_{\mathrm{thresh}}$ / mV'
         y_label = value_key_text_plot(metric, plot_mode=plot_mode)
         description = rf'Comparison of {y_label} for varying gap between $V_{{rest}}$ and $V_{{thresh}}$'
         
@@ -2129,8 +2194,8 @@ def plot_V_gap_variable_E_e_E_i(results_multiple_runs_E_L, results_multiple_runs
 
         y_1 = (y_1[0], y_1[1], y_1[2])
         y_2 = (y_2[0], y_2[1], y_2[2])
-        labels_1 = ('E_L increase (standard)', 'E_L increase (E_e +10 mV)', 'E_L increase (E_i -10 mV)')
-        labels_2 = ('V_thresh decrease (standard)', 'V_thresh decrease (E_e +10 mV)', 'V_thresh decrease (E_i -10 mV)')
+        labels_1 = ('$V_{\mathrm{rest}}$ increase (standard)', '$V_{\mathrm{rest}}$ increase ($V_{\mathrm{exc}}$ +10 mV)', '$V_{\mathrm{rest}}$  increase ($V_{\mathrm{inh}}$ -10 mV)')
+        labels_2 = ('$V_{\mathrm{thresh}}$ decrease (standard)', '$V_{\mathrm{thresh}}$ decrease ($V_{\mathrm{exc}}$ +10 mV)', '$V_{\mathrm{thresh}}$ decrease ($V_{\mathrm{inh}}$ -10 mV)')
         colors = (color_V_rest_var, color_V_thresh_var)
 
         # plot with all 3 curves
@@ -2161,9 +2226,9 @@ def plot_V_gap_constant(results_multiple_runs_V_gap, metrics_plot, mean_over_zer
             print(f"[{metric}] Excluded trials per V_rest: {num_excluded_trials} of {num_total_trials}")
         else:
             y_1_mean = np.mean(y_1, axis=0)
-        x_label = '$V_{rest}$ with equi distant $V_{thresh}$ (mV)'
+        x_label = '$V_{\mathrm{rest}}$ with equi distant $V_{\mathrm{thresh}}$ (mV)'
         y_label = value_key_text_plot(metric, plot_mode=plot_mode) 
-        #label_1 = 'Moving gap $V_{rest} - V_{thresh} = 22$ mV'
+        #label_1 = 'Moving gap $V_{\mathrm{rest}} - V_{\mathrm{thresh}} = 22$ mV'
         description=""
         if description_mode is True: 
             description = rf'Comparison of {y_label} for constant gap of 22 mV between $V_{{rest}}$ and $V_{{thresh}}$'
@@ -2237,7 +2302,7 @@ def plot_CTR_FR_V_gap_constant(results_multiple_CTR_FR_runs_V_gap, metrics_plot,
                 y_1_std = np.std(y_1, axis=0) / np.sqrt(len(y_1))
                 y_2_std = np.std(y_2, axis=0) / np.sqrt(len(y_2))
                 
-        x_label = '$V_{rest}$ with equi distant $V_{thresh}$ (mV)'
+        x_label = '$V_{\mathrm{rest}}$ with equi distant $V_{\mathrm{thresh}}$ (mV)'
         y_label = value_key_text_plot(metric, plot_mode=plot_mode) 
         label_1 = 'CTR'
         label_2 = 'FR'
@@ -2324,9 +2389,6 @@ def plot_CTR_FR_V_gap_constant(results_multiple_CTR_FR_runs_V_gap, metrics_plot,
                     print(f"Saved figure to {path}")
                 plt.show()
                 
-############################ adaptation plotting functions ############################
-
-
 
 
 ############################ correlation plotting functions ############################
@@ -2639,23 +2701,23 @@ def value_key_text_plot(value_key, plot_mode):
     
     if plot_mode == 'correlation': 
         if value_key == 'r_post': 
-            value_key_text = 'Mean firing rate $r_{post}$ (Hz)'
+            value_key_text = 'Mean firing rate $r_{\mathrm{post}}$ (Hz)'
         elif value_key == 'E_tot': 
-            value_key_text = 'Total energy $E_{tot}$ ($10^{9}$ ATP/s)'
+            value_key_text = 'Total energy $E_{\mathrm{tot}}$ ($10^{9}$ ATP/s)'
         elif value_key == 'OSI': 
-            value_key_text = 'OSI'
+            value_key_text = '$OSI$'
         elif value_key == 'OSI_per_energy': 
-            value_key_text = 'OSI per energy ($10^{-9}$s/ATP)'
+            value_key_text = '$OSI$ per energy ($10^{-9}$s/ATP)'
         elif value_key == 'V_m': 
             value_key_text = 'Membrane voltage $V_{m} (mV)$'
         elif value_key == 'CV_V_m': 
             value_key_text = 'CV of membrane voltage $CV_{V_{m}}$'
         elif value_key == 'CV_ISI': 
-            value_key_text = 'CV of ISI $CV_{ISI}$'
+            value_key_text = 'CV of ISI $CV_{\mathrm{ISI}}$'
         elif value_key == 'CV_ISI_per_energy': 
             value_key_text = 'CV of ISI per energy ($10^{-9}$s/ATP)'
         elif value_key == 'MI_tuning_curve': 
-            value_key_text = 'Mutual information based on tc $MI_{tc}$ (bits)'
+            value_key_text = 'Mutual information based on tc $MI_{\mathrm{tc}}$ (bits)'
         elif value_key == 'MI_tuning_curve_per_energy': 
             value_key_text = 'Mutual information based on tc per energy (bits/($10^{9}$ATP/s))'
         elif value_key == 'MICE_tuning_curve': 
@@ -2663,7 +2725,7 @@ def value_key_text_plot(value_key, plot_mode):
         elif value_key == 'MICE_tuning_curve_per_energy': 
             value_key_text = 'MI coding-efficiency based on tc per energy (s$^{2}$bits/($10^{9}$ATP))'
         elif value_key == 'MI_post': 
-            value_key_text = 'Mutual information based on spike times $MI_{post}$ (bits)'
+            value_key_text = 'Mutual information based on spike times $MI_{\mathrm{post}}$ (bits)'
         elif value_key == 'MI_post_per_energy': 
             value_key_text = 'Mutual information based on spike times per energy (bits/($10^{9}$ATP/s))'
         elif value_key == 'MICE_post': 
@@ -2687,11 +2749,11 @@ def value_key_text_plot(value_key, plot_mode):
         elif value_key == 'TECE_per_energy': 
             value_key_text = 'TE coding-efficiency per energy (s$^{2}$bits/($10^{9}$ATP))'
         elif value_key == 'I_syn_e': 
-            value_key_text = 'Excitatory synpatic current $I_{syn,e}$ (nA)'
+            value_key_text = 'Excitatory synpatic current $I_{\mathrm{syn,e}}$ (nA)'
         elif value_key == 'R_m': 
             value_key_text = 'Membrane resistance $R_{m}$ (MOhm)'
         elif value_key == 'E_L': 
-            value_key_text = 'Resting potential $V_{rest}$ (mV)'
+            value_key_text = 'Resting potential $V_{\mathrm{rest}}$ (mV)'
         elif value_key == 'w_scale': 
             value_key_text = 'synaptic weights'
         else: 
@@ -2699,59 +2761,59 @@ def value_key_text_plot(value_key, plot_mode):
             
     if plot_mode == 'correlation_short': 
         if value_key == 'r_post': 
-            value_key_text = '$r_{post}$ (Hz)'
+            value_key_text = '$r_{\mathrm{post}}$ (Hz)'
         elif value_key == 'E_tot': 
-            value_key_text = '$E_{tot}$ ($10^{9}$ ATP/s)'
+            value_key_text = '$E_{\mathrm{tot}}$ ($10^{9}$ ATP/s)'
         elif value_key == 'OSI': 
-            value_key_text = 'OSI'
+            value_key_text = '$OSI$'
         elif value_key == 'OSI_per_energy': 
-            value_key_text = 'OSI/$E_{tot}$ (1/($10^{9}$ATP/s))'
+            value_key_text = '$OSI$/$E_{\mathrm{tot}}$ (1/($10^{9}$ATP/s))'
         elif value_key == 'V_m': 
             value_key_text = '$V_{m} (mV)$'
         elif value_key == 'CV_V_m': 
             value_key_text = '$CV_{V_{m}}$'
         elif value_key == 'CV_ISI': 
-            value_key_text = '$CV_{ISI}$'
+            value_key_text = '$CV_{\mathrm{ISI}}$'
         elif value_key == 'CV_ISI_per_energy': 
-            value_key_text = '$CV_{ISI}$/$E_{tot}$ (1/($10^{9}$ATP/s)'
+            value_key_text = '$CV_{\mathrm{ISI}}$/$E_{\mathrm{tot}}$ (1/($10^{9}$ATP/s)'
         elif value_key == 'MI_tuning_curve': 
-            value_key_text = '$MI_{tc}$ (bits)'
+            value_key_text = '$MI_{\mathrm{tc}}$ (bits)'
         elif value_key == 'MI_tuning_curve_per_energy': 
-            value_key_text = '$MI_{tc}$/$E_{tot}$ (bits/($10^{9}$ATP/s)'
+            value_key_text = '$MI_{\mathrm{tc}}$/$E_{\mathrm{tot}}$ (bits/($10^{9}$ATP/s)'
         elif value_key == 'MICE_tuning_curve': 
             value_key_text = '$CE_{MI,tc}$ (bits/Hz)'
         elif value_key == 'MICE_tuning_curve_per_energy': 
-            value_key_text = '$CE_{MI,tc}$/$E_{tot}$ (s$^{2}$bits/($10^{9}$ATP))'
+            value_key_text = '$CE_{MI,tc}$/$E_{\mathrm{tot}}$ (s$^{2}$bits/($10^{9}$ATP))'
         elif value_key == 'MI_post': 
-            value_key_text = '$MI_{post}$ (bits)'
+            value_key_text = '$MI_{\mathrm{post}}$ (bits)'
         elif value_key == 'MI_post_per_energy': 
-            value_key_text = '$MI_{post}$/$E_{tot}$ (bits/($10^{9}$ATP/s))'
+            value_key_text = '$MI_{\mathrm{post}}$/$E_{\mathrm{tot}}$ (bits/($10^{9}$ATP/s))'
         elif value_key == 'MICE_post': 
             value_key_text = '$CE_{MI,post}$ (bits/Hz)' # originally '$MI$ CE (bits/Hz)'
         elif value_key == 'MICE_post_per_energy': 
-            value_key_text = '$CE_{MI,post}$/$E_{tot}$ (s$^{2}$bits/($10^{9}$ATP))' 
+            value_key_text = '$CE_{MI,post}$/$E_{\mathrm{tot}}$ (s$^{2}$bits/($10^{9}$ATP))' 
         elif value_key == 'MI': 
             value_key_text = '$MI$ (bits)'
         elif value_key == 'MI_per_energy': 
-            value_key_text = '$MI$/$E_{tot}$ (bits/($10^{9}$ATP/s))'
+            value_key_text = '$MI$/$E_{\mathrm{tot}}$ (bits/($10^{9}$ATP/s))'
         elif value_key == 'TE': 
             value_key_text = '$TE$ (bits)'
         elif value_key == 'TE_per_energy': 
-            value_key_text = '$TE$/$E_{tot}$ (bits/($10^{9}$ATP/s))'
+            value_key_text = '$TE$/$E_{\mathrm{tot}}$ (bits/($10^{9}$ATP/s))'
         elif value_key == 'MICE': 
             value_key_text = '$CE_{MI}$ (bits/Hz)' # originally '$MI$ CE (bits/Hz)'
         elif value_key == 'MICE_per_energy': 
-            value_key_text = '$CE_{MI}$/$E_{tot}$ (s$^{2}$bits/($10^{9}$ATP))' # originally '$MI$ CE/$E_{tot}$ (s$^{2}$bits/($10^{9}$ATP))'
+            value_key_text = '$CE_{MI}$/$E_{\mathrm{tot}}$ (s$^{2}$bits/($10^{9}$ATP))' # originally '$MI$ CE/$E_{\mathrm{tot}}$ (s$^{2}$bits/($10^{9}$ATP))'
         elif value_key == 'TECE': 
             value_key_text = '$CE_{TE}$ (bits/Hz)'
         elif value_key == 'TECE_per_energy': 
-            value_key_text = '$CE_{TE}$/$E_{tot}$ (s$^{2}$bits/($10^{9}$ATP))'
+            value_key_text = '$CE_{TE}$/$E_{\mathrm{tot}}$ (s$^{2}$bits/($10^{9}$ATP))'
         elif value_key == 'I_syn_e': 
-            value_key_text = '$I_{syn,e}$ (nA)'
+            value_key_text = '$I_{\mathrm{syn,e}}$ (nA)'
         elif value_key == 'R_m': 
             value_key_text = '$R_{m}$ (MOhm)'
         elif value_key == 'E_L': 
-            value_key_text = '$V_{rest}$  (mV)'
+            value_key_text = '$V_{\mathrm{rest}}$  (mV)'
         elif value_key == 'w_scale': 
             value_key_text = '$W_{e,syn}'
         else: 
@@ -2792,7 +2854,7 @@ def fit_func_legend_text_plot(fit_func):
 
 
 
-def plot_correlation(x, y, x_label, y_label, z=None, z_label=None, fit_func=None, initial_guess=None, params_fit=None, highlight_points=None, fit_func_highlight=None, initial_guess_highlight=None, params_fit_highlight=None, results_grid_point_to_exp_data=None, inverted_x=None, log_log=False, colors=['black', 'red', 'yellow'], show_colorbar=True, plot_mode='correlation', legend_mode=True, figsize=(8, 5), ax=None, savename=None): 
+def plot_correlation(x, y, x_label, y_label, z=None, z_label=None, fit_func=None, initial_guess=None, params_fit=None, highlight_points=None, fit_func_highlight=None, initial_guess_highlight=None, params_fit_highlight=None, results_grid_point_to_exp_data=None, inverted_x=None, xlim=None, log_log=False, colors=['black', 'red', 'yellow'], show_colorbar=True, plot_mode='correlation', legend_mode=True, figsize=(8, 5), ax=None, savename=None): 
     # plot correlation between two variables with optional fit and color coding
 
     # input
@@ -2815,6 +2877,7 @@ def plot_correlation(x, y, x_label, y_label, z=None, z_label=None, fit_func=None
     # results_grid_point_to_exp_data is a tuple of arrays of experimental data
     
     # inverted_x is a boolean to invert the x-axis if desired
+    # xlim is an optional tuple of the x-axis limits
     # log_log s a boolean to enable loglog scaling if desired
     # colors sets the colors of the CTR, FR & highlight points & fit
     # show_colorbar decides whether to display colorbar or not
@@ -2927,6 +2990,12 @@ def plot_correlation(x, y, x_label, y_label, z=None, z_label=None, fit_func=None
         ax.scatter(x_closest_points_FR, y_closest_points_FR, s=scatter_size, color=color_FR, label='FR', alpha=alpha_FR)
         #for x_val, y_val, a in zip(x_closest_points_FR, y_closest_points_FR, alpha_FR): ax.scatter(x_val, y_val, s=50, color=color_FR, alpha=a)
     
+            
+    # set x-limits if provided
+    if xlim is not None:
+        ax.set_xlim(xlim)
+    
+    
     #plt.ylim(-0.05,0.69)
     if log_log == True: 
         ax.set_xscale('log')
@@ -2938,7 +3007,7 @@ def plot_correlation(x, y, x_label, y_label, z=None, z_label=None, fit_func=None
         auto_handles, auto_labels = ax.get_legend_handles_labels()
         if auto_handles != []:
             ax.legend(handles=auto_handles, labels=auto_labels, frameon=False)
-
+    
     # invert x-axis if desired
     if inverted_x is not None:
         #plt.gca().invert_xaxis()
@@ -4406,8 +4475,8 @@ def plot_grid_3D_matplotlib(results, value_key, title=None, cmin=None, cmax=None
     ax.tick_params(axis='z', pad=-2)
 
     ax.set_xlabel(r'R$_m$ (M$\Omega$)', labelpad=-6)
-    ax.set_ylabel(r'V$_{rest}$ (mV)', labelpad=-6)
-    ax.set_zlabel(r'$\langle w_{syn,e}\rangle$ (nS)', labelpad=-6)
+    ax.set_ylabel(r'V$_{\mathrm{rest}}$ (mV)', labelpad=-6)
+    ax.set_zlabel(r'$\langle w_{\mathrm{syn,e}}\rangle$ (nS)', labelpad=-6)
 
     if title:
         ax.set_title(title)
@@ -4461,6 +4530,184 @@ def add_balls_to_3d_ax(ax3d, data_CTR_like, data_FR_like, colors=('#4a61e8', '#c
     ax3d.scatter([R_m_FR_like], [E_L_FR_like], [w_e_FR_like], s=size, c=[color_FR_like], edgecolors=edgecolor, linewidths=lw, depthshade=True, zorder=zorder)
 
     return (R_m_CTR_like, E_L_CTR_like, w_e_CTR_like, R_m_FR_like,  E_L_FR_like,  w_e_FR_like)
+
+
+def extract_thresholded_points_for_fit(results, value_key, lower_threshold=None, upper_threshold=None, use_translated_w_scale=True):
+    # extract thresholded points from results for plane fitting
+    # input
+    # results is a dictionary containing simulation results for different R_m, E_L and w_scale combinations
+    # value_key is the key of the result value used for thresholding
+    # lower_threshold is the lower threshold for selecting points
+    # upper_threshold is the upper threshold for selecting points
+    # use_translated_w_scale decides whether w_scale is translated into mean excitatory synaptic weights
+    # output
+    # x is an array of thresholded R_m values in MOhm
+    # y is an array of thresholded E_L values in mV
+    # z is an array of thresholded w_scale or translated mean excitatory synaptic weight values
+    # val is an array of thresholded values corresponding to value_key
+    
+    R_m_values = []
+    E_L_values = []
+    w_scale_values = []
+    values = []
+
+    for key in results:
+        params = key.split('_')
+        R_m = float(params[1])
+        E_L = float(params[3])
+        w_scale = float(params[5])
+
+        value = results[key].get(value_key, None)
+
+        R_m_values.append(R_m)
+        E_L_values.append(E_L)
+        w_scale_values.append(w_scale)
+        values.append(value)
+
+    R_m_values = np.asarray(R_m_values, dtype=float)
+    E_L_values = np.asarray(E_L_values, dtype=float)
+    w_scale_values = np.asarray(w_scale_values, dtype=float)
+    values = np.asarray([v if v is not None else np.nan for v in values], dtype=float)
+
+    if use_translated_w_scale is True:
+        z_values = np.asarray(w_scale_to_w_e_syn(w_scale_values), dtype=float)
+    else:
+        z_values = w_scale_values.copy()
+
+    # use same threshold logic as in plot_interactive_3D
+    within_threshold_mask = np.array([(not np.isnan(v)) and (v != 0) and (lower_threshold is None or v >= lower_threshold) and (upper_threshold is None or v <= upper_threshold) for v in values], dtype=bool)
+
+    x = R_m_values[within_threshold_mask]
+    y = E_L_values[within_threshold_mask]
+    z = z_values[within_threshold_mask]
+    val = values[within_threshold_mask]
+
+    # remove NaNs in geometry and values
+    finite_mask = np.isfinite(x) & np.isfinite(y) & np.isfinite(z) & np.isfinite(val)
+    x = x[finite_mask]
+    y = y[finite_mask]
+    z = z[finite_mask]
+    val = val[finite_mask]
+
+    return x, y, z, val
+
+
+def fit_plane_to_thresholded_points(results, value_key, lower_threshold=None, upper_threshold=None, use_translated_w_scale=True, print_results=True):
+    # fit a plane to thresholded points extracted from results
+    # input
+    # results is a dictionary containing simulation results for different R_m, E_L and w_scale combinations
+    # value_key is the key of the result value used for thresholding
+    # lower_threshold is the lower threshold for selecting points
+    # upper_threshold is the upper threshold for selecting points
+    # use_translated_w_scale decides whether w_scale is translated into mean excitatory synaptic weights
+    # print_results decides whether the fitted plane parameters are printed
+    # output
+    # fit is a dictionary containing the plane parameters, fit quality and fitted data points
+    
+    x, y, z, val = extract_thresholded_points_for_fit(results, value_key, lower_threshold=lower_threshold, upper_threshold=upper_threshold, use_translated_w_scale=use_translated_w_scale)
+
+    if len(x) < 3:
+        raise ValueError("Not enough thresholded points to fit a plane. Need at least 3.")
+
+    A = np.column_stack([x, y, np.ones_like(x)])
+    coeffs, residuals, rank, s = np.linalg.lstsq(A, z, rcond=None)
+    a, b, c = coeffs
+
+    z_pred = A @ coeffs
+    ss_res = np.sum((z - z_pred) ** 2)
+    ss_tot = np.sum((z - np.mean(z)) ** 2)
+    r2 = np.nan if ss_tot == 0 else 1 - ss_res / ss_tot
+
+    fit = {
+        "model": "plane",
+        "a": float(a),
+        "b": float(b),
+        "c": float(c),
+        "r2": float(r2),
+        "n_points": int(len(x)),
+        "x": x,
+        "y": y,
+        "z": z,
+        "values": val
+    }
+
+    if print_results is True:
+        print(f"Plane fit on thresholded points ({len(x)} points):")
+        print("z = a*x + b*y + c")
+        print(f"a = {a:.6f}")
+        print(f"b = {b:.6f}")
+        print(f"c = {c:.6f}")
+        print(f"R^2 = {r2:.6f}")
+
+        print("\nPlane fit on thresholded points")
+        print(f"Number of points used: {len(x)}\n")
+
+        print("Fitted relationship:")
+        if use_translated_w_scale is True:
+            print("w_syn_e (nS) = " + f"{a:.6f} · R_m (MOhm) " + f"+ {b:.6f} · E_L (mV) " + f"+ {c:.6f}\n")
+            print("Parameter interpretation:")
+            print(f"dw_syn_e/dR_m = {a:.6f} nS / MOhm")
+            print(f"dw_syn_e/dE_L = {b:.6f} nS / mV")
+            print(f"offset         = {c:.6f} nS\n")
+        else:
+            print("w_scale = " + f"{a:.6f} · R_m (MOhm) " + f"+ {b:.6f} · E_L (mV) " + f"+ {c:.6f}\n")
+            print("Parameter interpretation:")
+            print(f"dw_scale/dR_m = {a:.6f} / MOhm")
+            print(f"dw_scale/dE_L = {b:.6f} / mV")
+            print(f"offset        = {c:.6f}\n")
+
+    return fit
+
+
+def add_plane_fit_to_fig(fig, results, value_key, lower_threshold=None, upper_threshold=None, use_translated_w_scale=True, plane_resolution=20, plane_opacity=0.35, plane_color='rgba(200, 30, 30, 0.35)', print_results=True, name='Plane fit'):
+    # fit a plane to thresholded points and add it to an existing Plotly figure
+    # input
+    # fig is an existing Plotly figure
+    # results is a dictionary containing simulation results for different R_m, E_L and w_scale combinations
+    # value_key is the key of the result value used for thresholding
+    # lower_threshold is the lower threshold for selecting points
+    # upper_threshold is the upper threshold for selecting points
+    # use_translated_w_scale decides whether w_scale is translated into mean excitatory synaptic weights
+    # plane_resolution is the number of grid points used for plotting the fitted plane
+    # plane_opacity is the opacity of the fitted plane
+    # plane_color is the color of the fitted plane
+    # print_results decides whether the fitted plane parameters are printed
+    # name is the name of the fitted plane trace
+    # output
+    # fig is the Plotly figure with the fitted plane added
+    # fit is a dictionary containing the plane parameters, fit quality and fitted data points
+    
+    fit = fit_plane_to_thresholded_points(results, value_key, lower_threshold=lower_threshold, upper_threshold=upper_threshold, use_translated_w_scale=use_translated_w_scale, print_results=print_results)
+
+    x = fit["x"]
+    y = fit["y"]
+    a = fit["a"]
+    b = fit["b"]
+    c = fit["c"]
+
+    x_grid = np.linspace(np.min(x), np.max(x), plane_resolution)
+    y_grid = np.linspace(np.min(y), np.max(y), plane_resolution)
+    X, Y = np.meshgrid(x_grid, y_grid)
+    Z = a * X + b * Y + c
+
+    if use_translated_w_scale is True:
+        z_label = "w_syn_e"
+    else:
+        z_label = "w_scale"
+
+    fig.add_trace(go.Surface(x=X, y=Y, z=Z,
+        opacity=plane_opacity,
+        showscale=False,
+        colorscale=[[0, plane_color], [1, plane_color]],
+        name=name,
+        hovertemplate=(
+            name + '<br>'
+            'R_m: %{x:.2f}<br>'
+            'E_L: %{y:.2f}<br>'
+            + z_label + ': %{z:.2f}<extra></extra>'),showlegend=False))
+
+    return fig, fit
+
 
 
 def plot_2D_colored_surface(results, value_key, w_scale_constant, title, cmin=None, cmax=None, savename=None):
@@ -4667,16 +4914,21 @@ def plot_2D_mountains(results, value_key, w_scale_constant, title, cmin=None, cm
 
 ############################ video plotting functions ############################
 
-def create_rotation_video(fig, savename, duration=2, fps=30, trajectory=None, revealing=False, eye=dict(x=-2.2, y=2.2, z=0.8)):
-    # create a rotating video of the 3D grid around the z-axis which optionally animates a dot along a trajectory with the option to reveal the trajectory progressively
+
+def create_rotation_video(fig, savename, duration=2, fps=30, trajectory=None, revealing=False, results=None, trajectory_value_key='OSI_per_energy', trajectory_cmin=None, trajectory_cmax=None, eye=dict(x=-2.2, y=2.2, z=0.8)):
+    # create a rotating video of the 3D grid around the z-axis which optionally animates a dot along a trajectory
+    # if revealing=True, newly revealed trajectory segments are color-coded by trajectory_value_key
 
     # input
-    # fig is the the 3D figure to rotate created by plotly
+    # fig is the 3D figure to rotate created by plotly
     # savename is the desired file name
     # duration is the duration of the video in seconds
     # fps are the frames per second of the video
     # trajectory is a list of tuples of (R_m, E_L, w_scale) coordinates
-    # revealing if provided makes the trajectory being revealed step-by-step
+    # revealing progressively reveals the trajectory
+    # results is the simulation results dictionary used to obtain trajectory values from coordinates
+    # trajectory_value_key is the result key used to color the revealed trajectory
+    # trajectory_cmin and trajectory_cmax optionally define the trajectory color scale
     # eye is the dictionary of the initial camera position
 
     # output
@@ -4686,22 +4938,48 @@ def create_rotation_video(fig, savename, duration=2, fps=30, trajectory=None, re
     output_path = f"../Figures/{savename}_frames"
     os.makedirs(output_path, exist_ok=True)
 
-    num_frames = duration * fps # total number of frames
-    angles = np.linspace(0, 360 if trajectory is None else 180, num_frames, endpoint=False) # rotation angles (in degrees)
+    num_frames = duration * fps
+    angles = np.linspace(0, 360 if trajectory is None else 180, num_frames, endpoint=False)
 
     # prepare trajectory if provided
     if trajectory is not None:
         traj_R_m, traj_E_L, traj_w_scale = zip(*trajectory)
         num_points = len(trajectory)
-        dot_positions = [
-            trajectory[min(int(i * (num_points - 1) / (num_frames - 1)), num_points - 1)]
-            for i in range(num_frames)]
-    
+        dot_positions = [trajectory[min(int(i * (num_points - 1) / (num_frames - 1)), num_points - 1)] for i in range(num_frames)]
     else:
         dot_positions = [None] * num_frames
 
+    # prepare color coding of trajectory from results
+    trajectory_values = None
+    cmap_traj = None
+    norm_traj = None
+
+    if trajectory is not None and results is not None and trajectory_value_key is not None:
+        idx_value = build_index_by_RmEL(results, trajectory_value_key)
+
+        trajectory_values = []
+        for R_m, E_L, w_scale in trajectory:
+            _, value = get_entry_closest_wscale(idx_value, R_m, E_L, w_scale, trajectory_value_key)
+            trajectory_values.append(np.nan if value is None else float(value))
+
+        trajectory_values = np.asarray(trajectory_values, dtype=float)
+
+        # use complete simulation grid for common color normalization
+        _, _, _, _, _, all_values = parse_results_grid(results, trajectory_value_key)
+        finite_values = all_values[np.isfinite(all_values)]
+
+        if trajectory_cmin is None:
+            trajectory_cmin = float(np.nanmin(finite_values))
+
+        if trajectory_cmax is None:
+            trajectory_cmax = float(np.nanmax(finite_values))
+
+        norm_traj = Normalize(vmin=trajectory_cmin, vmax=trajectory_cmax, clip=True)
+        cmap_traj = plt.get_cmap('viridis')
+
     # generate and save each frame
     frame_files = []
+
     for i, angle in enumerate(angles):
         fig_frame = deepcopy(fig)
 
@@ -4710,52 +4988,61 @@ def create_rotation_video(fig, savename, duration=2, fps=30, trajectory=None, re
             dot_R_m, dot_E_L, dot_w_scale = dot_positions[i]
 
             if revealing:
-                # reveal trajectory up to the current point
+                # reveal trajectory segment-by-segment
                 if visible_idx > 0:
-                    fig_frame.add_trace(go.Scatter3d(
-                        x=traj_R_m[:visible_idx + 1],
-                        y=traj_E_L[:visible_idx + 1],
-                        z=w_scale_to_w_e_syn(traj_w_scale[:visible_idx + 1]), 
-                        mode='lines',
-                        line=dict(color='green', width=10),
-                        name='Trajectory', 
-                        showlegend=False))
-                    
+                    for j in range(visible_idx):
+                        x_seg = [traj_R_m[j], traj_R_m[j + 1]]
+                        y_seg = [traj_E_L[j], traj_E_L[j + 1]]
+                        z_seg = w_scale_to_w_e_syn([traj_w_scale[j], traj_w_scale[j + 1]])
+
+                        # fallback if no color information is available
+                        seg_color = 'green'
+
+                        # color newly reached segment according to trajectory value at destination point
+                        if trajectory_values is not None and norm_traj is not None and cmap_traj is not None:
+                            value = trajectory_values[j + 1]
+
+                            if np.isfinite(value):
+                                rgba = to_rgba(cmap_traj(norm_traj(value)))
+                                seg_color = f'rgb({int(rgba[0] * 255)},{int(rgba[1] * 255)},{int(rgba[2] * 255)})'
+
+                        fig_frame.add_trace(go.Scatter3d(x=x_seg, y=y_seg, z=z_seg, mode='lines', line=dict(color=seg_color, width=10), name='Trajectory', showlegend=False, hoverinfo='skip'))
+
             else:
                 # full trajectory visible from start
-                fig_frame.add_trace(go.Scatter3d(
-                    x=traj_R_m,
-                    y=traj_E_L,
-                    z=w_scale_to_w_e_syn(traj_w_scale),
-                    mode='lines',
-                    line=dict(color='green', width=10),
-                    name='Trajectory', 
-                    showlegend=False))
-                
-            # add the moving dot
-            fig_frame.add_trace(go.Scatter3d(
-                x=[dot_R_m],
-                y=[dot_E_L],
-                z=[w_scale_to_w_e_syn(dot_w_scale)],
-                mode='markers',
-                marker=dict(size=20, color='green'),
-                name='Moving Dot', 
-                showlegend=False))
+                fig_frame.add_trace(go.Scatter3d(x=traj_R_m, y=traj_E_L, z=w_scale_to_w_e_syn(traj_w_scale), mode='lines', line=dict(color='green', width=10), name='Trajectory', showlegend=False))
 
+            # add moving dot
+            if trajectory_values is not None and norm_traj is not None and cmap_traj is not None:
+                value = trajectory_values[visible_idx]
+                if np.isfinite(value):
+                    rgba = to_rgba(cmap_traj(norm_traj(value)))
+                    dot_color = f'rgb({int(rgba[0] * 255)},{int(rgba[1] * 255)},{int(rgba[2] * 255)})'
+            
+            fig_frame.add_trace(go.Scatter3d(x=[dot_R_m], y=[dot_E_L], z=[w_scale_to_w_e_syn([dot_w_scale])[0]], mode='markers', marker=dict(size=14, color=dot_color), name='Moving Dot', showlegend=False))
+        
+        """
         # rotate camera
         fig_frame.update_layout(scene_camera=dict(
             eye=dict(x=eye['x'] * np.cos(np.radians(angle)),
                      y=eye['y'] * np.sin(np.radians(angle)),
                      z=eye['z'])))
+        """
+        # rotate camera around z-axis while preserving the initial viewing angle
+        theta0 = np.arctan2(eye['y'], eye['x'])
+        radius_xy = np.sqrt(eye['x']**2 + eye['y']**2)
+        theta = theta0 + np.radians(angle)
 
+        fig_frame.update_layout(scene_camera=dict(eye=dict(x=radius_xy * np.cos(theta), y=radius_xy * np.sin(theta), z=eye['z']), up=dict(x=0, y=0, z=1)))
 
         # save frame
         frame_path = os.path.join(output_path, f"frame_{i:04d}.png")
         fig_frame.write_image(frame_path, width=1920, height=1080)
         frame_files.append(frame_path)
 
-    # combine frames into a GIF
+    # combine frames into GIF
     video_path = f"../Figures/{savename}.gif"
+
     with imageio.get_writer(video_path, mode="I", duration=1 / fps) as writer:
         for frame_file in frame_files:
             image = imageio.imread(frame_file)
@@ -4764,6 +5051,7 @@ def create_rotation_video(fig, savename, duration=2, fps=30, trajectory=None, re
     # clean up
     shutil.rmtree(output_path)
     print(f"Video saved at {video_path}")
+    
 
 """
 def create_video_iso_E_tot_OSI(results, E_tot_array, fps=3, savename='video_iso_E_tot_OSI', cmin=None, cmax=None, exp_data=None):
@@ -4815,6 +5103,7 @@ def create_video_iso_E_tot_OSI(results, E_tot_array, fps=3, savename='video_iso_
 
     print(f"Video saved at: {gif_path}")
     """
+
     
 def create_video_iso_E_tot_OSI_dynamic_exp(results, E_tot_array, fps=3, savename='video_iso_E_tot_OSI', cmin=None, cmax=None, original_exp_data=None, plot_exp_stems=False, circled_values=False, base_font_size=40, eye=dict(x=1.8, y=1.8, z=1.3)):
     # create a video that gradually reveals experimental data points as their corresponding grid point's E_tot exceeds the current iso-energy surface value
@@ -5241,7 +5530,7 @@ def plot_bin_sizes(binning_results, info_measure, figsize=(6, 5), ax=None, saven
 ############################ energy contribution plotting functions ############################
 
 
-def plot_energy_stackplot(E_tot, E_HK, E_RP, E_AP, E_ST, E_glu, E_Ca, r_post, description, labels=['$E_{HK}$', '$E_{RP}$', '$E_{AP}$', '$E_{glu}$', '$E_{Ca^{2+}}$', '$E_{syn}$'], r_post_optimum=None, r_post_optimum_percentages=None, inverted=False, legend_pos=False, y_limit=None, y_label=True, color_r_post_optimum='white', figsize=(5,4), ax=None, savename=None):
+def plot_energy_stackplot(E_tot, E_HK, E_RP, E_AP, E_ST, E_glu, E_Ca, r_post, description, labels=['$E_{\mathrm{HK}}$', '$E_{\mathrm{RP}}$', '$E_{\mathrm{AP}}$', '$E_{\mathrm{glu}}$', '$E_{\mathrm{Ca}^{2+}}$', '$E_{\mathrm{ST}}$'], r_post_optimum=None, r_post_optimum_percentages=None, inverted=False, legend_pos=False, y_limit=None, y_label=True, color_r_post_optimum='white', figsize=(5,4), ax=None, savename=None):
     # plot stacked energy contributiors
     
     # input
@@ -5323,7 +5612,7 @@ def plot_energy_stackplot(E_tot, E_HK, E_RP, E_AP, E_ST, E_glu, E_Ca, r_post, de
             cumulative = np.cumsum(stack_values)
     
             # place the text annotation in the middle of each segment
-            for i, label in enumerate(['$E_{HK}$', '$E_{RP}$', '$E_{AP}$', '$E_{glu}$', '$E_{Ca^{2+}}$', '$E_{syn}$']):
+            for i, label in enumerate(['$E_{\mathrm{HK}}$', '$E_{\mathrm{RP}}$', '$E_{\mathrm{AP}}$', '$E_{\mathrm{glu}}$', '$E_{\mathrm{Ca}^{2+}}$', '$E_{\mathrm{ST}}$']):
                 y_pos = cumulative[i] - stack_values[i] / 2
                 
                 if percentages[i] > 6:
@@ -5396,12 +5685,12 @@ def plot_energy_pie_chart(E_HK, E_RP, E_AP, E_ST, E_glu, E_Ca, r_post, title_mod
     
     if label_mode == 'short':
         original_labels = [ 
-            '$E_{HK}$',
-            '$E_{RP}$', 
-            '$E_{syn}$',
-            '$E_{glu}$', 
-            '$E_{Ca^2+}$', 
-            '$E_{AP}$']  # attention! changed order for plotting reasons!
+            '$E_{\mathrm{HK}}$',
+            '$E_{\mathrm{RP}}$', 
+            '$E_{\mathrm{ST}}$',
+            '$E_{\mathrm{glu}}$', 
+            '$E_{\mathrm{Ca}^2+}$', 
+            '$E_{\mathrm{AP}}$']  # attention! changed order for plotting reasons!
         
     if label_mode == 'no':
         original_labels = [ 
@@ -5548,7 +5837,7 @@ def E_RP(V_RP, R_m, V_K, V_Na, V_h, e, alpha=0.05):
     # output
     # E_RP is the resting potential energy consumption
     
-    E_RP = (g_Na(V_RP, R_m, V_K, V_Na, V_h, alpha=0.05) * (V_Na - V_RP) / 3 + g_h(V_RP, R_m, V_K, V_Na, V_h, alpha=0.05) * (V_h - V_RP) / 4) / e
+    E_RP = (g_Na(V_RP, R_m, V_K, V_Na, V_h, alpha=alpha) * (V_Na - V_RP) / 3 + g_h(V_RP, R_m, V_K, V_Na, V_h, alpha=alpha) * (V_h - V_RP) / 4) / e
     return E_RP
     
 def plot_conductances(R_m, alpha, V_K, V_Na, V_h, colors=['#57e7ff', '#9357ff', '#ff1d1d'], figsize=(8, 5), ax=None, savename=None):
@@ -5579,12 +5868,12 @@ def plot_conductances(R_m, alpha, V_K, V_Na, V_h, colors=['#57e7ff', '#9357ff', 
         cond_vec[3, i] = g_Na_Attwell(V_RP, R_m, V_K, V_Na)
         cond_vec[4, i] = g_h(V_RP, R_m, V_K, V_Na, V_h, alpha)
 
-    ax.plot(1e3 * V_RP_vec, 1e9 * cond_vec[0], color_K, label='$g_{K,with\,h}$')
-    ax.plot(1e3 * V_RP_vec, 1e9 * cond_vec[1], color_K, linestyle='dashed', label='$g_{K}$')#'$\n(no HCN)')
-    ax.plot(1e3 * V_RP_vec, 1e9 * cond_vec[2], color_Na, label='$g_{Na,with\,h}$')
-    ax.plot(1e3 * V_RP_vec, 1e9 * cond_vec[3], color_Na, linestyle='dashed', label='$g_{Na}$')#'\n(no HCN)')
+    ax.plot(1e3 * V_RP_vec, 1e9 * cond_vec[0], color_K, label='$g_{\mathrm{K}^{+}\mathrm{,with\,h}}$')
+    ax.plot(1e3 * V_RP_vec, 1e9 * cond_vec[1], color_K, linestyle='dashed', label='$g_{\mathrm{K}^{+}}$')#'$\n(no HCN)')
+    ax.plot(1e3 * V_RP_vec, 1e9 * cond_vec[2], color_Na, label='$g_{\mathrm{Na}^{+}\mathrm{,with\,h}}$')
+    ax.plot(1e3 * V_RP_vec, 1e9 * cond_vec[3], color_Na, linestyle='dashed', label='$g_{\mathrm{Na}^{+}}$')#'\n(no HCN)')
     ax.plot(1e3 * V_RP_vec, 1e9 * cond_vec[4], color_h, label='$g_{h}$')
-    ax.set_xlabel('$V_{RP}$ (mV)')
+    ax.set_xlabel('$V_{\mathrm{rest}}$ (mV)')
     ax.set_ylabel('conductance (nS)')
     ax.legend(loc='upper right', bbox_to_anchor=(1.1, 1), frameon=True, facecolor='white', framealpha=1.0, edgecolor='none')
     ax.spines['top'].set_visible(False)
@@ -5601,6 +5890,45 @@ def plot_conductances(R_m, alpha, V_K, V_Na, V_h, colors=['#57e7ff', '#9357ff', 
             print(f"Saved figure to {path}")
         plt.show()
 
+def plot_new_E_RP_vs_V_RP(R_m, V_K, V_Na, V_h, alpha, ylim=None, figsize=(8, 5), ax=None, savename=None):
+    # plots E_RP(V_RP)
+
+    # input
+    # R_m is the membrane resistance in Ohm
+    # V_K, V_Na, V_h are the reversal potentials for K+, Na+, h-currents
+    # alpha is the ratio between g_Na and g_K
+    # ylim decides if y-limits are used
+    # figsize sets figure size for standalone figures
+    # ax assigns plot to existing axis
+    # savename is an optional name to save figure
+
+    standalone = ax is None
+    fig = None
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
+
+    e = 1.602e-19 # in C
+    V_RP_vec = np.linspace(-90e-3, -50e-3, 500)
+    E_RP_vec = np.array([E_RP(V_RP, R_m, V_K, V_Na, V_h, e, alpha) for V_RP in V_RP_vec])
+    
+    ax.plot(1e3 * V_RP_vec, E_RP_vec/1e9, 'gray', label='HCN')
+    ax.set_ylim(ylim)
+    ax.set_xlabel('$V_{\mathrm{rest}}$ (mV)')
+    ax.set_ylabel('$E_{\mathrm{RP}}$ ($10^{9}$ATP/s)')
+    #ax.legend(frameon=False)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+    ax.xaxis.set_major_locator(MaxNLocator(nbins=4, min_n_ticks=3))
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=3, min_n_ticks=2))
+
+    # save & plot standalone figures
+    if standalone is True:       
+        if savename is not None:
+            path = f"../Figures/{savename}.pdf"
+            fig.savefig(path, bbox_inches="tight")
+            print(f"Saved figure to {path}")
+        plt.show()
+        
 def plot_energy_vs_V_RP(R_m, V_K, V_Na, V_h, alpha, ylim=None, figsize=(8, 5), ax=None, savename=None):
     # plots E_RP(V_RP)
 
@@ -5626,8 +5954,8 @@ def plot_energy_vs_V_RP(R_m, V_K, V_Na, V_h, alpha, ylim=None, figsize=(8, 5), a
     ax.plot(1e3 * V_RP_vec, E_RP_vec/1e9, 'gray', label='HCN')
     ax.plot(1e3 * V_RP_vec, E_RP_Attwell_vec/1e9, 'gray', linestyle='dashed', label='no HCN')
     ax.set_ylim(ylim)
-    ax.set_xlabel('$V_{RP}$ (mV)')
-    ax.set_ylabel('$E_{RP}$ ($10^{9}$ATP/s)')
+    ax.set_xlabel('$V_{\mathrm{rest}}$ (mV)')
+    ax.set_ylabel('$E_{\mathrm{RP}}$ ($10^{9}$ATP/s)')
     #ax.legend(frameon=False)
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
@@ -5669,7 +5997,7 @@ def plot_energy_vs_R_m(V_RP, V_K, V_Na, V_h, alpha, ylim=None, figsize=(8, 5), a
     ax.plot(1e-6 * R_m_vec, E_RP_Attwell_vec/1e9, 'gray', linestyle='dashed', label='no HCN')
     ax.set_ylim(ylim)
     ax.set_xlabel('$R_{m}$ (M$\Omega$)')
-    ax.set_ylabel('$E_{RP}$ ($10^{9}$ATP/s)')
+    ax.set_ylabel('$E_{\mathrm{RP}}$ ($10^{9}$ATP/s)')
     ax.spines['top'].set_visible(False)
     ax.spines['right'].set_visible(False)
     ax.legend(loc='upper right', frameon=False)
@@ -5738,7 +6066,7 @@ def plot_heatmap(data, CTR, FR, V_RP_vec, R_m_vec, title, label_CTR='CTR', label
     ax.set_xticklabels([f'{v:.0f}' for v in np.linspace(R_m_vec[0]*1e-6, R_m_vec[-1]*1e-6, 5)])
     ax.set_yticklabels([f'{v:.0f}' for v in np.linspace(V_RP_vec[0]*1e3, V_RP_vec[-1]*1e3, 5)])
     ax.set_xlabel('$R_{m}$ (M$\Omega$)')
-    ax.set_ylabel('$V_{RP}$ (mV)')
+    ax.set_ylabel('$V_{\mathrm{rest}}$ (mV)')
     X, Y = np.meshgrid(np.arange(500), np.arange(500))
     contours = ax.contour(X, Y, data, levels=8, colors='white', linewidths=0.8)
     CTR_tr = (np.interp(CTR[0], R_m_vec, np.arange(500)), np.interp(CTR[1], V_RP_vec, np.arange(500)))
@@ -5750,7 +6078,7 @@ def plot_heatmap(data, CTR, FR, V_RP_vec, R_m_vec, title, label_CTR='CTR', label
     cbar = plt.colorbar(heatmap, ax=ax, shrink=0.7, pad=0.04)
     cbar.ax.yaxis.set_major_locator(MaxNLocator(nbins=3, min_n_ticks=2))
        
-    cbar.set_label('$E_{RP}$ ($10^{9}$ATP/s)', rotation=270, labelpad=15)
+    cbar.set_label('$E_{\mathrm{RP}}$ ($10^{9}$ATP/s)', rotation=270, labelpad=15)
     if legend_mode:
         ax.legend(loc='upper right') 
 
@@ -5762,6 +6090,668 @@ def plot_heatmap(data, CTR, FR, V_RP_vec, R_m_vec, title, label_CTR='CTR', label
             print(f"Saved figure to {path}")
         plt.show()
 
+
+############################ data analysis natural scenes plotting functions ############################
+
+
+def p_to_stars(p):
+    # convert p value to significance stars
+    
+    # input
+    # p is the p value
+   
+    # output
+    # stars is a string with the significance level
+    
+    if p is None or np.isnan(p):
+        stars = "n/a"
+    elif p < 0.001:
+        stars = "***"
+    elif p < 0.01:
+        stars = "**"
+    elif p < 0.05:
+        stars = "*"
+    else:
+        stars = "n.s."
+    
+    return stars
+
+
+def sem(x):
+    # calculate standard error of the mean
+    
+    # input
+    # x is an array of data points
+    
+    # output
+    # sem_x is the standard error of the mean
+    
+    x = np.asarray(x, dtype=float)
+    x = x[~np.isnan(x)]
+    
+    if len(x) <= 1:
+        sem_x = np.nan
+    else:
+        sem_x = np.std(x, ddof=1) / np.sqrt(len(x))
+    
+    return sem_x
+
+
+def cliffs_delta(x, y):
+    # calculate Cliff's delta effect size
+    
+    # input
+    # x is an array of data points for the first group
+    # y is an array of data points for the second group
+    
+    # output
+    # delta is Cliff's delta effect size
+    
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    x = x[~np.isnan(x)]
+    y = y[~np.isnan(y)]
+
+    if len(x) == 0 or len(y) == 0:
+        delta = np.nan
+    else:
+        greater = 0
+        smaller = 0
+
+        for xi in x:
+            greater += np.sum(xi > y)
+            smaller += np.sum(xi < y)
+
+        delta = (greater - smaller) / (len(x) * len(y))
+    
+    return delta
+
+
+def cohen_d_welch(x, y):
+    # calculate Cohen's d using the average of the two group variances
+    
+    # input
+    # x is an array of data points for the first group
+    # y is an array of data points for the second group
+   
+    # output
+    # d is Cohen's d effect size
+    
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    x = x[~np.isnan(x)]
+    y = y[~np.isnan(y)]
+
+    if len(x) < 2 or len(y) < 2:
+        d = np.nan
+    else:
+        sx = np.var(x, ddof=1)
+        sy = np.var(y, ddof=1)
+
+        pooled_sd = np.sqrt((sx + sy) / 2)
+        
+        if pooled_sd == 0:
+            d = np.nan
+        else:
+            d = (np.mean(x) - np.mean(y)) / pooled_sd
+    
+    return d
+
+
+def permutation_test_mean_difference(x, y, n_perm=10000, seed=1):
+    # calculate permutation test p value for the difference in means
+   
+    # input
+    # x is an array of data points for the first group
+    # y is an array of data points for the second group
+    # n_perm is the number of permutations
+    # seed is the random seed
+    
+    # output
+    # p_perm is the permutation test p value
+    
+    rng = np.random.default_rng(seed)
+
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    x = x[~np.isnan(x)]
+    y = y[~np.isnan(y)]
+
+    if len(x) < 2 or len(y) < 2:
+        p_perm = np.nan
+    else:
+        observed = np.mean(x) - np.mean(y)
+        pooled = np.concatenate([x, y])
+        n_x = len(x)
+
+        count = 0
+        for _ in range(n_perm):
+            perm = rng.permutation(pooled)
+            x_perm = perm[:n_x]
+            y_perm = perm[n_x:]
+            diff = np.mean(x_perm) - np.mean(y_perm)
+            
+            if abs(diff) >= abs(observed):
+                count += 1
+
+        p_perm = (count + 1) / (n_perm + 1)
+    
+    return p_perm
+
+
+def calculate_two_group_stats(x_CTR, x_FR, n_perm=10000, seed=1):
+    # calculate statistical comparison between CTR and FR data
+    
+    # input
+    # x_CTR is an array of data points for control animals
+    # x_FR is an array of data points for food-restricted animals
+    # n_perm is the number of permutations for the permutation test
+    # seed is the random seed for the permutation test
+    
+    # output
+    # stat_row is a dictionary containing sample sizes, summary statistics, test results and suggested test
+    
+    x = np.asarray(x_CTR, dtype=float)
+    y = np.asarray(x_FR, dtype=float)
+    x = x[~np.isnan(x)]
+    y = y[~np.isnan(y)]
+
+    stat_row = {}
+    stat_row["n_CTR"] = len(x)
+    stat_row["n_FR"] = len(y)
+
+    stat_row["mean_CTR"] = np.mean(x) if len(x) else np.nan
+    stat_row["mean_FR"] = np.mean(y) if len(y) else np.nan
+
+    stat_row["median_CTR"] = np.median(x) if len(x) else np.nan
+    stat_row["median_FR"] = np.median(y) if len(y) else np.nan
+
+    stat_row["sem_CTR"] = sem(x)
+    stat_row["sem_FR"] = sem(y)
+
+    stat_row["var_CTR"] = np.var(x, ddof=1) if len(x) > 1 else np.nan
+    stat_row["var_FR"] = np.var(y, ddof=1) if len(y) > 1 else np.nan
+
+    stat_row["shapiro_CTR_p"] = stats.shapiro(x).pvalue if len(x) >= 3 else np.nan
+    stat_row["shapiro_FR_p"] = stats.shapiro(y).pvalue if len(y) >= 3 else np.nan
+
+    stat_row["levene_p"] = stats.levene(x, y, center="median").pvalue if (len(x) >= 2 and len(y) >= 2) else np.nan
+    stat_row["welch_p"] = stats.ttest_ind(x, y, equal_var=False, nan_policy="omit").pvalue if (len(x) >= 2 and len(y) >= 2) else np.nan
+    stat_row["mannwhitney_p"] = stats.mannwhitneyu(x, y, alternative="two-sided").pvalue if (len(x) >= 1 and len(y) >= 1) else np.nan
+    stat_row["permutation_p"] = permutation_test_mean_difference(x, y, n_perm=n_perm, seed=seed)
+
+    stat_row["cohen_d_CTR_minus_FR"] = cohen_d_welch(x, y)
+    stat_row["cliffs_delta_CTR_minus_FR"] = cliffs_delta(x, y)
+
+    normalish = (
+        not np.isnan(stat_row["shapiro_CTR_p"]) and
+        not np.isnan(stat_row["shapiro_FR_p"]) and
+        stat_row["shapiro_CTR_p"] > 0.05 and
+        stat_row["shapiro_FR_p"] > 0.05)
+
+    if normalish:
+        stat_row["suggested_test"] = "Welch's $t$"
+        stat_row["suggested_p"] = stat_row["welch_p"]
+    else:
+        stat_row["suggested_test"] = "Mann-Whitney U"
+        stat_row["suggested_p"] = stat_row["mannwhitney_p"]
+
+    return stat_row
+
+
+def add_significance_bar(ax, x1, x2, y, p, text=None, h_frac=0.03, fontsize=8):
+    # add significance bar to axis
+    
+    # input
+    # ax is the matplotlib axis
+    # x1 is the x position of the first group
+    # x2 is the x position of the second group
+    # y is the y position of the significance bar
+    # p is the p value
+    # text is an optional string displayed above the bar
+    # h_frac is the height of the bar relative to the y-axis range
+    # fontsize is the font size of the significance text
+    
+    # output
+    # ax is the matplotlib axis with added significance bar
+    
+    ylim = ax.get_ylim()
+    h = (ylim[1] - ylim[0]) * h_frac
+
+    if text is None:
+        text = p_to_stars(p)
+
+    ax.plot([x1, x1, x2, x2], [y, y + h, y + h, y], color="black", lw=1)
+    ax.text((x1 + x2) / 2, y + h, text, ha="center", va="bottom", fontsize=fontsize)
+    
+    return ax
+
+def plot_boxplot(data_CTR, data_FR, y_label, description, colors=['black', 'red'], figsize=(3, 4), ax=None, savename=None, show_points=True, show_mean=True, show_stats=True, n_perm=10000, seed=1):
+    # plot one CTR versus FR boxplot with significance bar
+    
+    # input
+    # data_CTR is an array of data points for control animals
+    # data_FR is an array of data points for food-restricted animals
+    # y_label is a string for the description of the y-axis
+    # description is a string for the title of the plot
+    # colors are the colors for color_CTR and color_FR
+    # figsize sets figure size for standalone figures
+    # ax assigns plot to existing axis
+    # savename is an optional name to save figure
+    # show_points decides whether individual data points are plotted
+    # show_mean decides whether mean and SEM are plotted
+    # show_stats decides whether the significance bar with test name and p value is plotted
+    # n_perm is the number of permutations for the permutation test
+    # seed is the random seed for jitter and the permutation test
+    
+    # output
+    # stat_row is a dictionary containing sample sizes, means, medians, test results and suggested test
+    
+    # prepare figure for standalone or assigned to axis
+    standalone = ax is None
+    fig = None
+    if ax is None:
+        fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
+    else:
+        fig = ax.get_figure()
+
+    color_CTR, color_FR = colors[0], colors[1]
+
+    x_CTR = np.asarray(data_CTR, dtype=float)
+    x_FR = np.asarray(data_FR, dtype=float)
+    x_CTR = x_CTR[~np.isnan(x_CTR)]
+    x_FR = x_FR[~np.isnan(x_FR)]
+    data = [x_CTR, x_FR]
+
+    stat_row = calculate_two_group_stats(x_CTR, x_FR, n_perm=n_perm, seed=seed)
+
+    rng = np.random.default_rng(seed)
+
+    # main plotting part
+    bp = ax.boxplot(data, positions=[1, 2], widths=0.45, patch_artist=True, showfliers=False, medianprops={"color": "black", "linewidth": 1.3}, boxprops={"linewidth": 1.0}, whiskerprops={"linewidth": 1.0}, capprops={"linewidth": 1.0})
+
+    for patch, color in zip(bp["boxes"], [color_CTR, color_FR]):
+        patch.set_facecolor(color)
+        patch.set_alpha(0.35)
+
+    if show_points is True:
+        for xpos, values, color in zip([1, 2], data, [color_CTR, color_FR]):
+            jitter = rng.normal(0, 0.05, size=len(values))
+            ax.scatter(np.full(len(values), xpos) + jitter, values, s=18, alpha=0.75, color=color, edgecolor="white", linewidth=0.35, zorder=3)
+
+    if show_mean is True:
+        for xpos, values in zip([1, 2], data):
+            mean_val = np.mean(values) if len(values) else np.nan
+            sem_val = sem(values)
+            ax.errorbar(xpos, mean_val, yerr=sem_val, fmt="o", color="black", capsize=3, markersize=4, zorder=5)
+
+    ax.set_xticks([1, 2])
+    ax.set_xticklabels(["CTR", "FR"])
+    #ax.set_xticklabels([f"CTR\nn={len(x_CTR)}", f"FR\nn={len(x_FR)}"])
+    ax.set_ylabel(y_label)
+    ax.set_title(description)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
+    y_all = np.concatenate([x_CTR, x_FR])
+    y_min = np.nanmin(y_all)
+    y_max = np.nanmax(y_all)
+    y_range = y_max - y_min if y_max > y_min else 1.0
+    ax.set_ylim(y_min - 0.08 * y_range, y_max + 0.35 * y_range)
+
+    if show_stats is True:
+        y_bar = y_max + 0.10 * y_range
+        p = stat_row["suggested_p"]
+        test_name = stat_row["suggested_test"]
+        if np.isnan(p):
+            stat_text = f"{test_name}\np=n/a"
+        else:
+            stat_text = f"{test_name}\np={p:.2g} ({p_to_stars(p)})"
+        add_significance_bar(ax, 1, 2, y_bar, p, text=stat_text, fontsize=7.5)
+
+    ax.xaxis.set_major_locator(MaxNLocator(nbins=2, min_n_ticks=2))
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=3, min_n_ticks=2))
+
+    # save & plot standalone figures
+    if standalone is True:       
+        if savename is not None:
+            path = f"../Figures/{savename}.pdf"
+            fig.savefig(path, bbox_inches="tight")
+            print(f"Saved figure to {path}")
+        plt.show()
+
+    return stat_row
+
+############################# plotting functions energy_dependent_IF #############################
+
+def plot_E_cons_synapse_vs_excitability_first(time_FR_PD, time_FR_PD_reverse, E_cons_dyn_FR_PD, E_cons_dyn_FR_PD_reverse, E_target_ATP=1.6e9, downsample_factor=10, colors=['red', 'darkred'], labels=['FR synapse-first', 'FR excitability-first'], figsize=(4, 3), ax=None, savename=None):
+    # plot reconstructed energy consumption over time for synapse- vs excitability-first model
+    
+    # input
+    # time_FR_PD, time_FR_PD_reverse are the synapse-first & excitability-first simulation time arrays in s
+    # E_cons_dyn_FR_PD, E_cons_dyn_FR_PD_reverse are the normalized synapse-first & excitability-first consumed energy arrays
+    # E_target_ATP is the energy normalization factor in units of 1e9 ATP/s
+    # downsample_factor keeps every nth sample for faster plotting
+    # colors are the colors for FR PD and FR reverse PD
+    # labels are the labels for FR PD and FR reverse PD
+    # figsize sets figure size for standalone figures
+    # ax assigns plot to existing axis
+    # savename is an optional name to save figure
+    
+    # output
+    # fig is the matplotlib figure
+    # ax is the matplotlib axis
+
+
+    def downsample_func(x):
+        # downsample an array by keeping every nth sample
+        # input
+        # x is an array
+        # output
+        # x_downsampled is the downsampled array
+
+        if downsample_factor is None or downsample_factor <= 1:
+            x_downsampled = x
+        else:
+            x_downsampled = x[::downsample_factor]
+
+        return x_downsampled
+
+    def smooth_exponential_kernel(x, time, tau=20.0, truncate=5):
+        # smooth an array with a symmetric exponential kernel and edge correction
+        
+        # input
+        # x is an array
+        # time is the time array in seconds
+        # tau is the exponential smoothing time constant in seconds
+        # truncate is the kernel cutoff in multiples of tau
+        
+        # output
+        # x_smooth is the edge-corrected exponentially smoothed array
+        
+        x = np.asarray(x)
+        time = np.asarray(time)
+        
+        dt = np.median(np.diff(time))
+        kernel_t = np.arange(-truncate*tau, truncate*tau + dt, dt)
+        kernel = np.exp(-np.abs(kernel_t) / tau)
+        
+        numerator = np.convolve(x, kernel, mode="same")
+        denominator = np.convolve(np.ones_like(x), kernel, mode="same")
+        
+        x_smooth = numerator / denominator
+        
+        return x_smooth
+    
+    tau=20.0
+    truncate=5
+    
+    E_cons_FR_PD = smooth_exponential_kernel(E_cons_dyn_FR_PD, time_FR_PD, tau, truncate)
+    E_cons_FR_PD_reverse = smooth_exponential_kernel(E_cons_dyn_FR_PD_reverse, time_FR_PD_reverse, tau, truncate)
+
+    time_FR_PD = np.asarray(time_FR_PD, dtype=float)
+    time_FR_PD_reverse = np.asarray(time_FR_PD_reverse, dtype=float)
+    
+    time_min = np.min(np.concatenate((time_FR_PD, time_FR_PD_reverse)))
+    time_max = np.max(np.concatenate((time_FR_PD, time_FR_PD_reverse)))
+    
+    time_FR_PD_relative = (time_FR_PD - time_min) / (time_max - time_min)
+    time_FR_PD_reverse_relative = (time_FR_PD_reverse - time_min) / (time_max - time_min)
+    
+    time_FR_PD_relative = downsample_func(time_FR_PD_relative)
+    E_cons_FR_PD = downsample_func(E_cons_FR_PD)
+    
+    time_FR_PD_reverse_relative = downsample_func(time_FR_PD_reverse_relative)
+    E_cons_FR_PD_reverse = downsample_func(E_cons_FR_PD_reverse)
+
+    standalone = ax is None
+    if standalone is True:
+        fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
+    else:
+        fig = ax.figure
+
+    ax.plot(time_FR_PD_relative, E_cons_FR_PD * E_target_ATP, label=labels[0], color=colors[0])
+    ax.plot(time_FR_PD_reverse_relative, E_cons_FR_PD_reverse * E_target_ATP, label=labels[1], color=colors[1]) 
+
+    #E_prod_ref = s_E_FR * rho_E_target * E_target_ATP
+    #E_target_ref = rho_E_target * E_target_ATP
+
+    #ax.axhline(E_prod_ref, color='gray', linestyle='--', linewidth=1, label=r'$E_{\mathrm{prod}}$')
+    #ax.axhline(E_target_ref, color='gray', linestyle=':', linewidth=1, label=r'$E_{\mathrm{target}}$')
+
+    ax.set_ylabel(r'$E_{\mathrm{cons}}$ ($10^{9}$ATP/s)')
+    ax.set_xlabel("relative time")
+    ax.set_xlim(-0.05, 1.05)
+    ax.set_xticks([0, 0.5, 1])
+    ax.set_xticklabels(["0", "0.5", "1"])
+
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
+    #ax.xaxis.set_major_locator(MaxNLocator(nbins=2, min_n_ticks=1))
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=3, min_n_ticks=2))
+    
+    ax.legend(frameon=False)
+    
+    if standalone is True:
+        if savename is not None:
+            path = f'../Figures/{savename}.pdf'
+            fig.savefig(path, bbox_inches='tight', transparent=True)
+            print(f'Saved figure to {path}')
+
+        plt.show()
+
+    return fig, ax
+
+def plot_OSI_per_energy_two_FR_trajectories(results_mean_FR_trajectory_synapse_first, results_mean_FR_trajectory_excitability_first, results_FR_trajectory_synapse_first, results_FR_trajectory_excitability_first, OSI_per_energy="OSI_per_energy", colors=("red", "darkred"), labels=("FR synapse-first", "FR excitability-first"), markers=("o", "D"), figsize=(3.4, 2.4), s=42, linewidth=1.4, show_legend=True, savename=None, ax=None):
+    # plots two OSI per energy trajectories
+    
+    # input
+    # results_mean_FR_trajectory_synapse_first is the averaged results dictionary for the synapse-first trajectory
+    # results_mean_FR_trajectory_excitability_first is the averaged results dictionary for the excitability-first trajectory
+    # results_FR_trajectory_synapse_first is the full results dictionary for the synapse-first trajectory
+    # results_FR_trajectory_excitability_first is the full results dictionary for the excitability-first trajectory
+    # OSI_per_energy is the dictionary key for OSI per energy in 1/(ATP/s)
+    # colors contains the final colors for the synapse-first and excitability-first trajectories
+    # labels contains the legend labels for the synapse-first and excitability-first trajectories
+    # markers contains the marker shapes for the synapse-first and excitability-first trajectories
+    # show_legend determines whether the trajectory legend is shown
+    # figsize determines the figure size for a standalone figure
+    # ax assigns the plot to an existing axis
+    # savename is an optional filename without file extension
+    
+    # output
+    # fig is the matplotlib figure object
+    # ax is the matplotlib axis object
+
+    standalone = ax is None
+
+    if standalone:
+        fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
+    else:
+        fig = ax.figure
+
+    def get_sem_per_trajectory_point(results_full, key):
+        trajectory_indices = np.asarray(results_full["trajectory_index"])
+        values_all = np.asarray(results_full[key], dtype=float)
+        unique_indices = np.unique(trajectory_indices)
+
+        sem_list = []
+        for idx in unique_indices:
+            values = values_all[trajectory_indices == idx]
+            if len(values) > 1:
+                sem = np.std(values, ddof=1) / np.sqrt(len(values))
+            else:
+                sem = 0.0
+            sem_list.append(sem)
+
+        return np.asarray(sem_list)
+
+    rel_time = np.linspace(0, 1, len(results_mean_FR_trajectory_synapse_first[OSI_per_energy]))
+
+    y_synapse_first = np.asarray(results_mean_FR_trajectory_synapse_first[OSI_per_energy])
+    y_excitability_first = np.asarray(results_mean_FR_trajectory_excitability_first[OSI_per_energy])
+
+    yerr_synapse_first = get_sem_per_trajectory_point(results_FR_trajectory_synapse_first, OSI_per_energy)
+    yerr_excitability_first = get_sem_per_trajectory_point(results_FR_trajectory_excitability_first, OSI_per_energy)
+
+    ax.errorbar(rel_time, y_synapse_first, yerr=yerr_synapse_first, color=colors[0], label=labels[0], fmt='-', capsize=2, linewidth=linewidth)
+    ax.errorbar(rel_time, y_excitability_first, yerr=yerr_excitability_first, color=colors[1], label=labels[1], fmt='-', capsize=2, linewidth=linewidth)
+
+    ax.set_xticks([0, 0.5, 1])
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=3, min_n_ticks=2))
+    ax.set_xlabel("relative time")
+    ax.set_ylabel(r"$OSI$/$E_{\mathrm{cons}}$ ($10^{-9}$ s/ATP)")
+
+    if show_legend is True:
+        ax.legend(frameon=False)
+    
+    if standalone:
+        if savename is not None:
+            path = f"../Figures/{savename}.pdf"
+            fig.savefig(path, bbox_inches="tight", transparent=True)
+            print(f"Saved figure to {path}")
+
+        plt.show()
+
+    return fig, ax
+
+def plot_energy_vs_OSI_two_FR_trajectories(results_mean_FR_trajectory_synapse_first, results_mean_FR_trajectory_excitability_first, energy_key="E_tot", OSI_key="OSI", time_key="timepoint_FR", colors=("red", "darkred"), labels=("FR synapse-first", "FR excitability-first"), markers=("o", "D"), figsize=(3.4, 2.4), s=42, linewidth=1.4, description=None, show_legend=True, show_time_text=True, savename=None, ax=None):
+    # plots two energy-versus-OSI trajectories with separate red-shaded time color coding for the two trajectories with line segments are colored according to the next data point in the trajectory
+    
+    # input
+    # results_mean_FR_trajectory_synapse_first is the averaged results dictionary for the synapse-first trajectory
+    # results_mean_FR_trajectory_excitability_first is the averaged results dictionary for the excitability-first trajectory
+    # energy_key is the dictionary key for total energy in ATP/s
+    # OSI_key is the dictionary key for OSI
+    # time_key is the dictionary key for trajectory timepoints in s
+    # colors contains the final colors for the synapse-first and excitability-first trajectories
+    # labels contains the legend labels for the synapse-first and excitability-first trajectories
+    # markers contains the marker shapes for the synapse-first and excitability-first trajectories
+    # figsize determines the figure size for a standalone figure
+    # s is the marker size
+    # linewidth is the trajectory line width
+    # description is the optional plot title
+    # show_legend determines whether the trajectory legend is shown
+    # show_time_text determines whether a small early-to-late annotation is shown
+    # savename is an optional filename without file extension
+    # ax assigns the plot to an existing axis
+    
+    # output
+    # fig is the matplotlib figure object
+    # ax is the matplotlib axis object
+
+    def prepare_trajectory(results):
+        # extracts finite energy, OSI, and time values and sorts them by time
+        
+        # input
+        # results is a dictionary containing energy, OSI, and time values
+        
+        # output
+        # energy is an array of total energy values in units of 1e9 ATP/s
+        # OSI is an array of OSI values
+        # time is an array of trajectory timepoints in s
+
+        energy = np.asarray(results[energy_key], dtype=float) / 1e9
+        OSI = np.asarray(results[OSI_key], dtype=float)
+        time = np.asarray(results[time_key], dtype=float)
+
+        valid = np.isfinite(energy) & np.isfinite(OSI) & np.isfinite(time)
+
+        energy = energy[valid]
+        OSI = OSI[valid]
+        time = time[valid]
+
+        order = np.argsort(time)
+
+        return energy[order], OSI[order], time[order]
+
+    def add_time_colored_trajectory(ax, energy, OSI, time, cmap, norm, marker):
+        # adds one trajectory with segment colors matching the next data point
+        
+        # input
+        # ax is the matplotlib axis object
+        # energy is an array of total energy values in units of 1e9 ATP/s
+        # OSI is an array of OSI values
+        # time is an array of trajectory timepoints in s
+        # cmap is the colormap used for this trajectory
+        # norm maps time values onto the colormap
+        # marker is the marker shape
+        
+        # output
+        # line_collection is the matplotlib line collection object
+        # scatter is the matplotlib scatter object
+
+        points = np.column_stack((energy, OSI))
+
+        if len(points) > 1:
+            segments = np.stack((points[:-1], points[1:]), axis=1)
+            segment_time = time[1:]
+            line_collection = LineCollection(segments, cmap=cmap, norm=norm, linewidths=linewidth, capstyle="round", joinstyle="round", zorder=1)
+            line_collection.set_array(segment_time)
+            ax.add_collection(line_collection)
+        else:
+            line_collection = None
+
+        scatter = ax.scatter(energy, OSI, c=time, cmap=cmap, norm=norm, marker=marker, s=s, edgecolor="none", zorder=3)
+
+        return line_collection, scatter
+
+    standalone = ax is None
+
+    if standalone:
+        fig, ax = plt.subplots(figsize=figsize, constrained_layout=True)
+    else:
+        fig = ax.figure
+
+    energy_synapse_first, OSI_synapse_first, time_synapse_first = prepare_trajectory(results_mean_FR_trajectory_synapse_first)
+    energy_excitability_first, OSI_excitability_first, time_excitability_first = prepare_trajectory(results_mean_FR_trajectory_excitability_first)
+
+    if len(time_synapse_first) == 0 or len(time_excitability_first) == 0:
+        raise ValueError("At least one trajectory contains no finite data points.")
+
+    time_all = np.concatenate((time_synapse_first, time_excitability_first))
+    time_min = np.min(time_all)
+    time_max = np.max(time_all)
+
+    if np.isclose(time_min, time_max):
+        time_max = time_min + 1
+
+    norm_time = Normalize(vmin=time_min, vmax=time_max)
+
+    cmap_synapse_first = LinearSegmentedColormap.from_list("cmap_synapse_first", ["#ffd6d6", colors[0]])
+    cmap_excitability_first = LinearSegmentedColormap.from_list("cmap_excitability_first", ["#d8b0b0", colors[1]])
+
+    add_time_colored_trajectory(ax, energy_synapse_first, OSI_synapse_first, time_synapse_first, cmap_synapse_first, norm_time, markers[0])
+    add_time_colored_trajectory(ax, energy_excitability_first, OSI_excitability_first, time_excitability_first, cmap_excitability_first, norm_time, markers[1])
+
+    ax.invert_xaxis()
+    ax.set_xlabel(r"$E_{\mathrm{tot}}$ ($10^{9}$ ATP/s)")
+    ax.set_ylabel("$OSI$")
+
+    if description is not None:
+        ax.set_title(description)
+
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.tick_params(axis="both", direction="out", length=3, width=0.8)
+    ax.xaxis.set_major_locator(MaxNLocator(nbins=3, min_n_ticks=3))
+    ax.yaxis.set_major_locator(MaxNLocator(nbins=3, min_n_ticks=2))
+    ax.margins(x=0.08, y=0.10)
+
+    if show_time_text is True:
+        ax.text(0.02, 1.05, "early", transform=ax.transAxes, ha="left", va="top")
+        ax.text(0.98, 1.05, "late", transform=ax.transAxes, ha="right", va="top")
+    
+    if standalone:
+        if savename is not None:
+            path = f"../Figures/{savename}.pdf"
+            fig.savefig(path, bbox_inches="tight", transparent=True)
+            print(f"Saved figure to {path}")
+
+        plt.show()
+
+    return fig, ax
 
 ############################# plotting functions Zeldenrust #############################
 
@@ -6189,11 +7179,11 @@ def value_key_text_plot_Zeldenrust(value_key, plot_mode):
     
     elif plot_mode == 'correlation': 
         if value_key in ('E_L', 'E_L_mV_list'):
-            value_key_text = '$V_{rest}$ (mV)'
+            value_key_text = '$V_{\mathrm{rest}}$ (mV)'
         elif value_key in ('r_post', 'firing_rate_Hz_list'):
-            value_key_text = '$r_{post}$ (Hz)'
+            value_key_text = '$r_{\mathrm{post}}$ (Hz)'
         elif value_key in ('V_thresh', 'V_thresh_mV_list'):
-            value_key_text = '$V_{thresh}$ (mV)'
+            value_key_text = '$V_{\mathrm{thresh}}$ (mV)'
         elif value_key in ('R_m', 'R_m_mean_MOhm_list'):
             value_key_text = '$R_{m}$ (M$\\Omega$)'
         elif value_key in ('C_m', 'C_m_mean_pF_list'):
@@ -6201,33 +7191,33 @@ def value_key_text_plot_Zeldenrust(value_key, plot_mode):
         elif value_key in ('Delta_T', 'Delta_T_mean_mV_list'): 
             value_key_text = '$\\Delta$T (mV)'
         elif value_key in ('V_reset', 'V_reset_mean_mV_list'):
-            value_key_text = '$V_{reset}$ (mV)'
+            value_key_text = '$V_{\mathrm{reset}}$ (mV)'
         elif value_key in ('tau_w_ad', 'tau_w_mean_ms_list'):
-            value_key_text = '$\\tau_{ad}$ (ms)'
+            value_key_text = '$\\tau_{\mathrm{ad}}$ (ms)'
         elif value_key in ('a_ad', 'a_w_mean_nS_list'):
-            value_key_text = '$a_{ad}$ (nS)'
+            value_key_text = '$a_{\mathrm{ad}}$ (nS)'
         elif value_key in ('b_ad', 'b_w_mean_nA_list'):
-            value_key_text = '$b_{ad}$ (nA)'
+            value_key_text = '$b_{\mathrm{ad}}$ (nA)'
         elif value_key in ('MI', 'MI_calculated_bits_list', 'MI_FZ_bits_list'):
             value_key_text = '$MI$ (bits)'
         elif value_key in ('FI_calculated_list','FI_FZ_list'):
             value_key_text = '$FI$'
         elif value_key in ('E_tot', 'E_tot_1e9_ATP_per_s_list'):
-            value_key_text = '$E_{tot}$ ($10^{9}$ ATP/s)'
+            value_key_text = '$E_{\mathrm{tot}}$ ($10^{9}$ ATP/s)'
         elif value_key in ('MICE', 'MICE_calculated_list', 'MICE_FZ_list'):
             value_key_text = '$CE_{MI}$ (bits/Hz)'
         elif value_key in ('MICE_per_energy', 'MICE_calculated_per_energy_list', 'MICE_FZ_per_energy_list'):
-            value_key_text = '$MI/E_{tot}$ (bits/($10^{9}$ ATP/s))'
+            value_key_text = '$MI/E_{\mathrm{tot}}$ (bits/($10^{9}$ ATP/s))'
         elif value_key in ('MICE_calculated_per_energy_list', 'MICE_FZ_per_energy_list'):
-            value_key_text = '$CE_{MI}/E_{tot}$ (bits/(Hz $10^{9}$ ATP/s))'
+            value_key_text = '$CE_{MI}/E_{\mathrm{tot}}$ (bits/(Hz $10^{9}$ ATP/s))'
         elif value_key == 'I_syn_mean_pA_list':
-            value_key_text = '$I_{syn}$ (pA)'
+            value_key_text = '$I_{\mathrm{syn}}$ (pA)'
         elif value_key in ('CV_V_m',):
             value_key_text = '$CV_{V_{m}}$'
         elif value_key in ('CV_ISI',):
-            value_key_text = '$CV_{ISI}'
+            value_key_text = '$CV_{\mathrm{ISI}}'
         elif value_key in ('CV_ISI_per_energy',):
-            value_key_text = '$CV_{ISI}/E{tot} ($10^{-9}$ s/ATP)'
+            value_key_text = '$CV_{\mathrm{ISI}}/E_{\mathrm{tot}} ($10^{-9}$ s/ATP)'
         elif value_key in ('hit_fraction',):
             value_key_text = 'Hit fraction'
         elif value_key in ('false_alarm_fraction',):
@@ -6247,7 +7237,7 @@ def value_key_text_plot_Zeldenrust(value_key, plot_mode):
         
     return value_key_text
 
-def plot_correlation_exc_inh(x1, x2, y1, y2, x_label, y_label, z1=None, z2=None, z_label=None, x3=None, y3=None, z3=None, inverted_x=None, log_log=False, colors=['red', 'blue'], transparency=0.5,  figsize=(4,3), ax=None, savename=None): 
+def plot_correlation_exc_inh(x1, x2, y1, y2, x_label, y_label, z1=None, z2=None, z_label=None, x3=None, y3=None, z3=None, inverted_x=None, xlim=None, log_log=False, colors=['red', 'blue'], transparency=0.5,  figsize=(4,3), ax=None, savename=None): 
     # plot correlation between two variables with optional fit and color coding
 
     # input
@@ -6258,6 +7248,7 @@ def plot_correlation_exc_inh(x1, x2, y1, y2, x_label, y_label, z1=None, z2=None,
     # z1 & z2 are arrays for color coding of scatter points
     # z_label is a string for the z colorbar label   
     # inverted_x is a boolean to invert the x-axis if desired
+    # xlim is an optional tuple of the x-axis limits
     # log_log s a boolean to enable loglog scaling if desired
     # color are the colors of exc & inh cells
     # transparency sets the transparency of experimental data points by parameter alpha 
@@ -6308,13 +7299,17 @@ def plot_correlation_exc_inh(x1, x2, y1, y2, x_label, y_label, z1=None, z2=None,
         cbar = fig.colorbar(scatter, ax=ax, label=z_label_text)
         ticks = [round(z_min, 2), round((z_min + z_max) / 2, 2), round(z_max, 2)]
         cbar.set_ticks(ticks)
-
+        
+    # set x-limits if provided
+    if xlim is not None:
+        ax.set_xlim(xlim)
+        
     #plt.ylim(-0.05,0.69)
     if log_log == True: 
         plt.xscale('log')
         plt.yscale('log') 
     
-
+    
     # add legend     
     # get current legend handles and labels
     auto_handles, auto_labels = ax.get_legend_handles_labels()
@@ -7457,7 +8452,7 @@ def plot_grid_and_exp_interactive_3D(grid_data_exc=None, grid_data_inh=None, exp
     
     grid_value_label = value_key_text_plot_Zeldenrust(value_key, plot_mode='grid_hover') if grid_color_mode else None
     if normalization_mode=="normalized_axis":
-        grid_value_label = "MI (norm.)"
+        grid_value_label = "$MI$ (norm.)"
     exp_value_label  = value_key_text_plot_Zeldenrust(value_key, plot_mode='grid_hover') if exp_color_mode else None
 
     # helper: colorbar spec like in your other function

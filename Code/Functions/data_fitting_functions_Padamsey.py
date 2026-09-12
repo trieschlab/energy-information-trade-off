@@ -109,7 +109,7 @@ def single_w_scale_estimation_run(r_post_exp, w_scale_init, T, N_e, N_i, spike_t
     # a_ad is the AdExp subthreshold adaptation
     # b_ad is the AdExp spike-triggered adaptation
     # membrane_noise is the std of the membrane noise in mV/s
-    # model_mode is a list of strings or string & decides which model is used for simulation
+    # model_mode is a list or string & decides which model is used for simulation
     # membrane_noise_mode decides if membrane noise is added or not
     # tolerance is the acceptable difference between experimental target and simulated r_post
     # max_iterations is the maximum number of iterations
@@ -174,7 +174,7 @@ def single_w_scale_estimation_run(r_post_exp, w_scale_init, T, N_e, N_i, spike_t
     if model_mode == 'AdExp':
         return w_scale_iteration, r_post_simulation_AdExp
 
-def full_w_scale_estimation_run(model_mode, R_m, E_L, r_post, T):
+def full_w_scale_estimation_run(model_mode, R_m, E_L, r_post, T, membrane_noise_mode=True):
     # estimate w_scale from r_post values for multiple experimental values
     
     # input
